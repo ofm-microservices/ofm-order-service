@@ -131,3 +131,80 @@ func (s *server) MarkPaymentFailed(ctx context.Context, req *orderwritev1.MarkPa
 	}
 	return &orderwritev1.MarkPaymentFailedResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: "failed"}}, nil
 }
+
+func (s *server) GetOrderLifecycleSnapshot(ctx context.Context, req *orderwritev1.GetOrderLifecycleSnapshotRequest) (*orderwritev1.GetOrderLifecycleSnapshotResponse, error) {
+	snap, err := s.svc.GetOrderLifecycleSnapshot(ctx, req.GetOrderId())
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.GetOrderLifecycleSnapshotResponse{Order: &orderwritev1.OrderSnapshot{
+		OrderId:                    snap.OrderID,
+		SagaId:                     snap.SagaID,
+		BuyerUserId:                snap.BuyerID,
+		SellerUserId:               snap.SellerID,
+		GigId:                      snap.GigID,
+		GigTitleSnapshot:           snap.GigTitle,
+		PackageId:                  snap.PackageID,
+		PackageTitleSnapshot:       snap.PackageTitle,
+		PackageDescriptionSnapshot: snap.PackageDescription,
+		PriceAmountSnapshot:        snap.PriceCents,
+		PriceCurrencySnapshot:      snap.Currency,
+		Status:                     snap.Status,
+		RevisionCountSnapshot:      snap.RevisionCountSnapshot,
+		RevisionCountUsed:          snap.RevisionCountUsed,
+		BuyerResponseDeadline:      snap.BuyerResponseDeadline,
+		PaymentIntentId:            snap.PaymentIntentID,
+		PaymentReleaseId:           snap.PaymentReleaseID,
+		DeliveredAt:                snap.DeliveredAt,
+		CompletedAt:                snap.CompletedAt,
+		DisputedAt:                 snap.DisputedAt,
+	}}, nil
+}
+
+func (s *server) SaveDelivery(ctx context.Context, req *orderwritev1.SaveDeliveryRequest) (*orderwritev1.SaveDeliveryResponse, error) {
+	res, err := s.svc.SaveDelivery(ctx, app.SaveDeliveryCommand{OrderID: req.GetOrderId(), SellerID: req.GetSellerUserId(), Message: req.GetDeliveryMessage(), AttachmentIDs: req.GetAttachmentIds(), RequestedAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.SaveDeliveryResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}
+
+func (s *server) MarkReleasePending(ctx context.Context, req *orderwritev1.MarkReleasePendingRequest) (*orderwritev1.MarkReleasePendingResponse, error) {
+	res, err := s.svc.MarkReleasePending(ctx, app.MarkReleasePendingCommand{OrderID: req.GetOrderId(), PaymentReleaseID: req.GetPaymentReleaseId(), RequestedAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.MarkReleasePendingResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}
+
+func (s *server) RequestRevision(ctx context.Context, req *orderwritev1.RequestRevisionRequest) (*orderwritev1.RequestRevisionResponse, error) {
+	res, err := s.svc.RequestRevision(ctx, app.RequestRevisionCommand{OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), Reason: req.GetReason(), RequestedAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.RequestRevisionResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}
+
+func (s *server) OpenDispute(ctx context.Context, req *orderwritev1.OpenDisputeRequest) (*orderwritev1.OpenDisputeResponse, error) {
+	res, err := s.svc.OpenDispute(ctx, app.OpenDisputeCommand{OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), Reason: req.GetReason(), RequestedAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.OpenDisputeResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}
+
+func (s *server) MarkOrderCompleted(ctx context.Context, req *orderwritev1.MarkOrderCompletedRequest) (*orderwritev1.MarkOrderCompletedResponse, error) {
+	res, err := s.svc.MarkOrderCompleted(ctx, app.MarkOrderCompletedCommand{OrderID: req.GetOrderId(), PaymentReleaseID: req.GetPaymentReleaseId(), OccurredAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.MarkOrderCompletedResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}
+
+func (s *server) MarkReleaseFailed(ctx context.Context, req *orderwritev1.MarkReleaseFailedRequest) (*orderwritev1.MarkReleaseFailedResponse, error) {
+	res, err := s.svc.MarkReleaseFailed(ctx, app.MarkReleaseFailedCommand{OrderID: req.GetOrderId(), Reason: req.GetReason(), OccurredAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.MarkReleaseFailedResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}

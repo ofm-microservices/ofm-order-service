@@ -20,6 +20,13 @@ type Service interface {
 	SaveRequirementAnswers(ctx context.Context, cmd SaveRequirementAnswersCommand) (*SaveRequirementAnswersResult, error)
 	SaveBuyerInitialMessage(ctx context.Context, cmd SaveBuyerInitialMessageCommand) (*SaveBuyerInitialMessageResult, error)
 	AttachFile(ctx context.Context, cmd AttachFileCommand) (*AttachFileResult, error)
+	GetOrderLifecycleSnapshot(ctx context.Context, orderID string) (*OrderLifecycleSnapshot, error)
+	SaveDelivery(ctx context.Context, cmd SaveDeliveryCommand) (*SaveDeliveryResult, error)
+	MarkReleasePending(ctx context.Context, cmd MarkReleasePendingCommand) (*MarkReleasePendingResult, error)
+	RequestRevision(ctx context.Context, cmd RequestRevisionCommand) (*RequestRevisionResult, error)
+	OpenDispute(ctx context.Context, cmd OpenDisputeCommand) (*OpenDisputeResult, error)
+	MarkOrderCompleted(ctx context.Context, cmd MarkOrderCompletedCommand) (*MarkOrderCompletedResult, error)
+	MarkReleaseFailed(ctx context.Context, cmd MarkReleaseFailedCommand) (*MarkReleaseFailedResult, error)
 }
 
 // EventBroker abstracts the NATS JetStream broker implementation.
@@ -128,6 +135,30 @@ type OrderPaymentSnapshot struct {
 	Status       string
 }
 
+// OrderLifecycleSnapshot returns the state needed by the saga for delivery and completion.
+type OrderLifecycleSnapshot struct {
+	OrderID               string
+	SagaID                string
+	BuyerID               string
+	SellerID              string
+	GigID                 string
+	GigTitle              string
+	PackageID             string
+	PackageTitle          string
+	PackageDescription    string
+	PriceCents            int64
+	Currency              string
+	Status                string
+	RevisionCountSnapshot int32
+	RevisionCountUsed     int32
+	BuyerResponseDeadline string
+	PaymentIntentID       string
+	PaymentReleaseID      string
+	DeliveredAt           string
+	CompletedAt           string
+	DisputedAt            string
+}
+
 // MarkPaymentPendingCommand records a checkout session against the order.
 type MarkPaymentPendingCommand struct {
 	OrderID         string
@@ -163,6 +194,88 @@ type MarkPaymentFailedCommand struct {
 
 // MarkPaymentFailedResult reports the updated order state.
 type MarkPaymentFailedResult struct {
+	OrderID string
+	Status  string
+}
+
+// SaveDeliveryCommand stores seller delivery details.
+type SaveDeliveryCommand struct {
+	OrderID       string
+	SellerID      string
+	Message       string
+	AttachmentIDs []string
+	RequestedAt   string
+}
+
+// SaveDeliveryResult reports the updated order state.
+type SaveDeliveryResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkReleasePendingCommand marks the order as waiting payout release.
+type MarkReleasePendingCommand struct {
+	OrderID          string
+	PaymentReleaseID string
+	RequestedAt      string
+}
+
+// MarkReleasePendingResult reports the updated order state.
+type MarkReleasePendingResult struct {
+	OrderID string
+	Status  string
+}
+
+// RequestRevisionCommand stores buyer revision request details.
+type RequestRevisionCommand struct {
+	OrderID     string
+	BuyerID     string
+	Reason      string
+	RequestedAt string
+}
+
+// RequestRevisionResult reports the updated order state.
+type RequestRevisionResult struct {
+	OrderID string
+	Status  string
+}
+
+// OpenDisputeCommand stores buyer dispute details.
+type OpenDisputeCommand struct {
+	OrderID     string
+	BuyerID     string
+	Reason      string
+	RequestedAt string
+}
+
+// OpenDisputeResult reports the updated order state.
+type OpenDisputeResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkOrderCompletedCommand records the final payout release.
+type MarkOrderCompletedCommand struct {
+	OrderID          string
+	PaymentReleaseID string
+	OccurredAt       string
+}
+
+// MarkOrderCompletedResult reports the updated order state.
+type MarkOrderCompletedResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkReleaseFailedCommand stores a failed payout release.
+type MarkReleaseFailedCommand struct {
+	OrderID    string
+	Reason     string
+	OccurredAt string
+}
+
+// MarkReleaseFailedResult reports the updated order state.
+type MarkReleaseFailedResult struct {
 	OrderID string
 	Status  string
 }

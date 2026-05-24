@@ -74,7 +74,7 @@ func (s *service) Create(ctx context.Context, cmd CreateOrderCommand) error {
 }
 
 func (s *service) Confirm(ctx context.Context, cmd ConfirmOrderCommand) error {
-	order, err := s.orders.MarkPaid(ctx, cmd.OrderID, cmd.PaymentIntentID)
+	order, err := s.orders.MarkFunded(ctx, cmd.OrderID, cmd.PaymentIntentID)
 	if err != nil {
 		return err
 	}
@@ -149,11 +149,11 @@ func (s *service) GetOrderPaymentSnapshot(ctx context.Context, orderID string) (
 }
 
 func (s *service) MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error) {
-	order, err := s.orders.GetByID(ctx, cmd.OrderID)
-	if err != nil {
+	if err := s.orders.SaveCheckoutSession(ctx, cmd.OrderID, cmd.PaymentIntentID, cmd.CheckoutURL); err != nil {
 		return nil, err
 	}
-	if err := s.orders.SaveCheckoutSession(ctx, cmd.OrderID, cmd.CheckoutURL); err != nil {
+	order, err := s.orders.GetByID(ctx, cmd.OrderID)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.read.Upsert(ctx, order); err != nil {
@@ -163,7 +163,7 @@ func (s *service) MarkPaymentPending(ctx context.Context, cmd MarkPaymentPending
 }
 
 func (s *service) MarkOrderFunded(ctx context.Context, cmd MarkOrderFundedCommand) (*MarkOrderFundedResult, error) {
-	order, err := s.orders.MarkPaid(ctx, cmd.OrderID, cmd.PaymentIntentID)
+	order, err := s.orders.MarkFunded(ctx, cmd.OrderID, cmd.PaymentIntentID)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +223,117 @@ func (s *service) AttachFile(ctx context.Context, cmd AttachFileCommand) (*Attac
 		return nil, err
 	}
 	return &AttachFileResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) GetOrderLifecycleSnapshot(ctx context.Context, orderID string) (*OrderLifecycleSnapshot, error) {
+	order, err := s.orders.GetLifecycleSnapshot(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return &OrderLifecycleSnapshot{
+		OrderID:               order.OrderID,
+		SagaID:                order.SagaID,
+		BuyerID:               order.BuyerID,
+		SellerID:              order.SellerID,
+		GigID:                 order.GigID,
+		GigTitle:              order.GigTitle,
+		PackageID:             order.PackageID,
+		PackageTitle:          order.PackageTier,
+		PackageDescription:    order.PackageDescription,
+		PriceCents:            order.PriceCents,
+		Currency:              order.Currency,
+		Status:                order.Status,
+		RevisionCountSnapshot: 0,
+		RevisionCountUsed:     order.RevisionCountUsed,
+		BuyerResponseDeadline: order.BuyerResponseDeadline.Format(time.RFC3339Nano),
+		PaymentIntentID:       order.PaymentIntentID,
+		PaymentReleaseID:      order.PaymentReleaseID,
+		DeliveredAt:           order.DeliveredAt.Format(time.RFC3339Nano),
+		CompletedAt:           order.CompletedAt.Format(time.RFC3339Nano),
+		DisputedAt:            order.DisputedAt.Format(time.RFC3339Nano),
+	}, nil
+}
+
+func (s *service) SaveDelivery(ctx context.Context, cmd SaveDeliveryCommand) (*SaveDeliveryResult, error) {
+	order, err := s.orders.SaveDelivery(ctx, domain.SaveDeliveryParams{
+		OrderID:       cmd.OrderID,
+		SellerID:      cmd.SellerID,
+		Message:       cmd.Message,
+		AttachmentIDs: cmd.AttachmentIDs,
+		RequestedAt:   parseTimeOrNow(cmd.RequestedAt),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.read.Upsert(ctx, order); err != nil {
+		return nil, err
+	}
+	return &SaveDeliveryResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) MarkReleasePending(ctx context.Context, cmd MarkReleasePendingCommand) (*MarkReleasePendingResult, error) {
+	order, err := s.orders.MarkReleasePending(ctx, cmd.OrderID, cmd.PaymentReleaseID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.read.Upsert(ctx, order); err != nil {
+		return nil, err
+	}
+	return &MarkReleasePendingResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) RequestRevision(ctx context.Context, cmd RequestRevisionCommand) (*RequestRevisionResult, error) {
+	order, err := s.orders.RequestRevision(ctx, domain.RequestRevisionParams{
+		OrderID:     cmd.OrderID,
+		BuyerID:     cmd.BuyerID,
+		Reason:      cmd.Reason,
+		RequestedAt: parseTimeOrNow(cmd.RequestedAt),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.read.Upsert(ctx, order); err != nil {
+		return nil, err
+	}
+	return &RequestRevisionResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) OpenDispute(ctx context.Context, cmd OpenDisputeCommand) (*OpenDisputeResult, error) {
+	order, err := s.orders.OpenDispute(ctx, domain.OpenDisputeParams{
+		OrderID:     cmd.OrderID,
+		BuyerID:     cmd.BuyerID,
+		Reason:      cmd.Reason,
+		RequestedAt: parseTimeOrNow(cmd.RequestedAt),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.read.Upsert(ctx, order); err != nil {
+		return nil, err
+	}
+	return &OpenDisputeResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) MarkOrderCompleted(ctx context.Context, cmd MarkOrderCompletedCommand) (*MarkOrderCompletedResult, error) {
+	order, err := s.orders.MarkCompleted(ctx, cmd.OrderID, cmd.PaymentReleaseID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.read.Upsert(ctx, order); err != nil {
+		return nil, err
+	}
+	return &MarkOrderCompletedResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) MarkReleaseFailed(ctx context.Context, cmd MarkReleaseFailedCommand) (*MarkReleaseFailedResult, error) {
+	order, err := s.orders.MarkReleaseFailed(ctx, cmd.OrderID, cmd.Reason)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.read.Upsert(ctx, order); err != nil {
+		return nil, err
+	}
+	return &MarkReleaseFailedResult{OrderID: order.OrderID, Status: order.Status}, nil
 }
 
 func (s *service) publishCreateResult(ctx context.Context, sagaID, orderID, status, operation, reason string) error {

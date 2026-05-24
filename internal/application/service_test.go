@@ -1,0 +1,299 @@
+package application
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/ofm-microservices/ofm-common/pkg/logging"
+	"order-service/internal/domain"
+)
+
+type testBroker struct {
+	subjects []string
+	payloads [][]byte
+	err      error
+}
+
+func (b *testBroker) Publish(_ context.Context, subject string, payload []byte) error {
+	b.subjects = append(b.subjects, subject)
+	b.payloads = append(b.payloads, append([]byte(nil), payload...))
+	return b.err
+}
+
+func (b *testBroker) Subscribe(context.Context, string, string, MessageHandler) error { return nil }
+func (b *testBroker) Close()                                                          {}
+
+type testOrders struct {
+	createParams   []domain.CreateOrderParams
+	createErr      error
+	fundedCalls    []string
+	failedCalls    []string
+	saveCheckout   []string
+	snap           *domain.Order
+	upserted       []*domain.Order
+	saveQuestions  []domain.SaveQuestionSnapshotsParams
+	saveReqAnswers []domain.SaveRequirementAnswersParams
+}
+
+func (r *testOrders) Create(_ context.Context, params domain.CreateOrderParams) (*domain.Order, error) {
+	r.createParams = append(r.createParams, params)
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	return &domain.Order{
+		OrderID:             params.OrderID,
+		SagaID:              params.SagaID,
+		BuyerID:             params.BuyerID,
+		SellerID:            params.SellerID,
+		GigID:               params.GigID,
+		GigTitle:            params.GigTitle,
+		PackageID:           params.PackageID,
+		PackageTier:         params.PackageTier,
+		PackageDescription:  params.PackageDescription,
+		PackageDeliveryDays: params.PackageDeliveryDays,
+		PriceCents:          params.PriceCents,
+		Currency:            params.Currency,
+		Status:              domain.OrderStatusRequirementsPending,
+	}, nil
+}
+
+func (r *testOrders) SaveQuestionSnapshots(_ context.Context, params domain.SaveQuestionSnapshotsParams) error {
+	r.saveQuestions = append(r.saveQuestions, params)
+	return nil
+}
+
+func (r *testOrders) GetByID(_ context.Context, orderID string) (*domain.Order, error) {
+	if r.snap != nil {
+		return r.snap, nil
+	}
+	return &domain.Order{OrderID: orderID, Status: domain.OrderStatusRequirementsPending}, nil
+}
+
+func (r *testOrders) MarkPaid(context.Context, string, string) (*domain.Order, error) {
+	return nil, nil
+}
+
+func (r *testOrders) MarkFunded(_ context.Context, orderID, paymentIntentID string) (*domain.Order, error) {
+	r.fundedCalls = append(r.fundedCalls, orderID+":"+paymentIntentID)
+	return &domain.Order{OrderID: orderID, Status: domain.OrderStatusFunded}, nil
+}
+
+func (r *testOrders) MarkFailed(_ context.Context, orderID, reason string) (*domain.Order, error) {
+	r.failedCalls = append(r.failedCalls, orderID+":"+reason)
+	return &domain.Order{OrderID: orderID, Status: domain.OrderStatusFailed, FailureReason: reason}, nil
+}
+
+func (r *testOrders) SaveRequirementAnswers(_ context.Context, params domain.SaveRequirementAnswersParams) (*domain.Order, error) {
+	r.saveReqAnswers = append(r.saveReqAnswers, params)
+	return &domain.Order{OrderID: params.OrderID, Status: domain.OrderStatusRequirementsCompleted}, nil
+}
+
+func (r *testOrders) SaveBuyerInitialMessage(context.Context, domain.SaveBuyerInitialMessageParams) (*domain.Order, error) {
+	return nil, nil
+}
+
+func (r *testOrders) AttachFile(context.Context, domain.AttachFileParams) (*domain.Order, error) {
+	return nil, nil
+}
+
+func (r *testOrders) SaveCheckoutSession(_ context.Context, orderID, paymentIntentID, checkoutURL string) error {
+	r.saveCheckout = append(r.saveCheckout, orderID+":"+paymentIntentID+":"+checkoutURL)
+	return nil
+}
+
+func (r *testOrders) GetLifecycleSnapshot(_ context.Context, orderID string) (*domain.Order, error) {
+	if r.snap != nil {
+		return r.snap, nil
+	}
+	return &domain.Order{OrderID: orderID, Status: domain.OrderStatusDelivered}, nil
+}
+
+func (r *testOrders) SaveDelivery(context.Context, domain.SaveDeliveryParams) (*domain.Order, error) {
+	return &domain.Order{Status: domain.OrderStatusDelivered}, nil
+}
+
+func (r *testOrders) MarkReleasePending(_ context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
+	return &domain.Order{OrderID: orderID, PaymentReleaseID: paymentReleaseID, Status: domain.OrderStatusReleasePending}, nil
+}
+
+func (r *testOrders) RequestRevision(context.Context, domain.RequestRevisionParams) (*domain.Order, error) {
+	return nil, nil
+}
+
+func (r *testOrders) OpenDispute(context.Context, domain.OpenDisputeParams) (*domain.Order, error) {
+	return nil, nil
+}
+
+func (r *testOrders) MarkCompleted(_ context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
+	return &domain.Order{OrderID: orderID, PaymentReleaseID: paymentReleaseID, Status: domain.OrderStatusCompleted}, nil
+}
+
+func (r *testOrders) MarkReleaseFailed(_ context.Context, orderID, reason string) (*domain.Order, error) {
+	return &domain.Order{OrderID: orderID, FailureReason: reason, Status: domain.OrderStatusReleaseFailed}, nil
+}
+
+type testRead struct{ orders []*domain.Order }
+
+func (r *testRead) Upsert(_ context.Context, order *domain.Order) error {
+	r.orders = append(r.orders, order)
+	return nil
+}
+
+type testLogger struct{}
+
+func (testLogger) Debug(string, ...logging.Field)       {}
+func (testLogger) Info(string, ...logging.Field)        {}
+func (testLogger) Warn(string, ...logging.Field)        {}
+func (testLogger) Error(string, ...logging.Field)       {}
+func (testLogger) With(...logging.Field) logging.Logger { return testLogger{} }
+func (testLogger) Sync() error                          { return nil }
+
+func TestNewRejectsNilLogger(t *testing.T) {
+	orders := &testOrders{}
+	read := &testRead{}
+	broker := &testBroker{}
+
+	svc, err := New(orders, read, broker, Config{}, nil)
+	if !errors.Is(err, ErrNilLogger) {
+		t.Fatalf("err = %v, want ErrNilLogger", err)
+	}
+	if svc != nil {
+		t.Fatalf("svc = %#v, want nil", svc)
+	}
+}
+
+func TestCreatePublishesSuccessAndUpsertsReadModel(t *testing.T) {
+	orders := &testOrders{}
+	read := &testRead{}
+	broker := &testBroker{}
+
+	svc, err := New(orders, read, broker, Config{OrderCreateResultSubject: "order.create.result"}, testLogger{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = svc.Create(context.Background(), CreateOrderCommand{
+		SagaID:              "saga-1",
+		OrderID:             "order-1",
+		BuyerID:             "buyer-1",
+		SellerID:            "seller-1",
+		GigID:               "gig-1",
+		GigTitle:            "Gig",
+		PackageID:           "pkg-1",
+		PackageTier:         "Basic",
+		PackageDescription:  "desc",
+		PackageDeliveryDays: 3,
+		PriceCents:          1000,
+		Currency:            "usd",
+		IdempotencyKey:      "idem-1",
+		RequestedAt:         "2026-05-24T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := len(orders.createParams); got != 1 {
+		t.Fatalf("create calls = %d, want 1", got)
+	}
+	if got := len(read.orders); got != 1 {
+		t.Fatalf("upsert calls = %d, want 1", got)
+	}
+	if got := broker.subjects; len(got) != 1 || got[0] != "order.create.result" {
+		t.Fatalf("subjects = %#v, want [order.create.result]", got)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(broker.payloads[0], &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if status, _ := result["status"].(string); status != "success" {
+		t.Fatalf("status = %v, want success", result["status"])
+	}
+}
+
+func TestCreatePublishesFailureResultWhenCreateFails(t *testing.T) {
+	orders := &testOrders{createErr: errors.New("boom")}
+	read := &testRead{}
+	broker := &testBroker{}
+
+	svc, err := New(orders, read, broker, Config{OrderCreateResultSubject: "order.create.result"}, testLogger{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = svc.Create(context.Background(), CreateOrderCommand{OrderID: "order-1", SagaID: "saga-1"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := len(read.orders); got != 0 {
+		t.Fatalf("upsert calls = %d, want 0", got)
+	}
+	if got := broker.subjects; len(got) != 1 || got[0] != "order.create.result" {
+		t.Fatalf("subjects = %#v, want [order.create.result]", got)
+	}
+}
+
+func TestStateTransitionsUpdateReadModel(t *testing.T) {
+	orders := &testOrders{snap: &domain.Order{OrderID: "order-1", Status: domain.OrderStatusDelivered}}
+	read := &testRead{}
+	broker := &testBroker{}
+
+	svc, err := New(orders, read, broker, Config{}, testLogger{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	funded, err := svc.MarkOrderFunded(context.Background(), MarkOrderFundedCommand{OrderID: "order-1", PaymentIntentID: "pi-1"})
+	if err != nil {
+		t.Fatalf("MarkOrderFunded: %v", err)
+	}
+	if funded.Status != domain.OrderStatusFunded {
+		t.Fatalf("funded status = %q, want %q", funded.Status, domain.OrderStatusFunded)
+	}
+
+	failed, err := svc.MarkPaymentFailed(context.Background(), MarkPaymentFailedCommand{OrderID: "order-1", Reason: "card_declined"})
+	if err != nil {
+		t.Fatalf("MarkPaymentFailed: %v", err)
+	}
+	if failed.Status != domain.OrderStatusFailed {
+		t.Fatalf("failed status = %q, want %q", failed.Status, domain.OrderStatusFailed)
+	}
+
+	delivered, err := svc.SaveDelivery(context.Background(), SaveDeliveryCommand{
+		OrderID:     "order-1",
+		SellerID:    "seller-1",
+		Message:     "done",
+		RequestedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery: %v", err)
+	}
+	if delivered.Status != domain.OrderStatusDelivered {
+		t.Fatalf("delivered status = %q, want %q", delivered.Status, domain.OrderStatusDelivered)
+	}
+
+	rel, err := svc.MarkReleasePending(context.Background(), MarkReleasePendingCommand{OrderID: "order-1", PaymentReleaseID: "rel-1"})
+	if err != nil {
+		t.Fatalf("MarkReleasePending: %v", err)
+	}
+	if rel.Status != domain.OrderStatusReleasePending {
+		t.Fatalf("release pending status = %q, want %q", rel.Status, domain.OrderStatusReleasePending)
+	}
+
+	comp, err := svc.MarkOrderCompleted(context.Background(), MarkOrderCompletedCommand{OrderID: "order-1", PaymentReleaseID: "rel-1"})
+	if err != nil {
+		t.Fatalf("MarkOrderCompleted: %v", err)
+	}
+	if comp.Status != domain.OrderStatusCompleted {
+		t.Fatalf("completed status = %q, want %q", comp.Status, domain.OrderStatusCompleted)
+	}
+
+	releaseFailed, err := svc.MarkReleaseFailed(context.Background(), MarkReleaseFailedCommand{OrderID: "order-1", Reason: "boom"})
+	if err != nil {
+		t.Fatalf("MarkReleaseFailed: %v", err)
+	}
+	if releaseFailed.Status != domain.OrderStatusReleaseFailed {
+		t.Fatalf("release failed status = %q, want %q", releaseFailed.Status, domain.OrderStatusReleaseFailed)
+	}
+}
