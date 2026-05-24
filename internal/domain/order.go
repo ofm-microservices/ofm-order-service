@@ -6,39 +6,51 @@ import (
 )
 
 const (
-	OrderStatusDraft             = "draft"
-	OrderStatusRequirementsPending = "requirements_pending"
+	OrderStatusDraft                 = "draft"
+	OrderStatusRequirementsPending   = "requirements_pending"
 	OrderStatusRequirementsCompleted = "requirements_completed"
-	OrderStatusMessageCompleted   = "message_completed"
-	OrderStatusAttachmentsPending  = "attachments_pending"
-	OrderStatusReadyToPay          = "ready_to_pay"
-	OrderStatusPaymentPending      = "payment_pending"
-	OrderStatusFunded              = "funded"
-	OrderStatusPaid                = "paid"
-	OrderStatusFailed              = "failed"
+	OrderStatusMessageCompleted      = "message_completed"
+	OrderStatusAttachmentsPending    = "attachments_pending"
+	OrderStatusReadyToPay            = "ready_to_pay"
+	OrderStatusPaymentPending        = "payment_pending"
+	OrderStatusFunded                = "funded"
+	OrderStatusPaid                  = "paid"
+	OrderStatusDelivered             = "delivered"
+	OrderStatusReleasePending        = "release_pending"
+	OrderStatusRevisionRequested     = "revision_requested"
+	OrderStatusDisputed              = "disputed"
+	OrderStatusCompleted             = "completed"
+	OrderStatusReleaseFailed         = "release_failed"
+	OrderStatusFailed                = "failed"
 )
 
 // Order is the immutable order snapshot plus lifecycle state owned by
 // order-service.
 type Order struct {
-	OrderID             string
-	SagaID              string
-	BuyerID             string
-	SellerID            string
-	GigID               string
-	GigTitle            string
-	PackageID           string
-	PackageTier         string
-	PackageDescription  string
-	PackageDeliveryDays int32
-	PriceCents          int64
-	Currency            string
-	Status              string
-	IdempotencyKey      string
-	PaymentIntentID     string
-	FailureReason       string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	OrderID               string
+	SagaID                string
+	BuyerID               string
+	SellerID              string
+	GigID                 string
+	GigTitle              string
+	PackageID             string
+	PackageTier           string
+	PackageDescription    string
+	PackageDeliveryDays   int32
+	PriceCents            int64
+	Currency              string
+	Status                string
+	IdempotencyKey        string
+	PaymentIntentID       string
+	PaymentReleaseID      string
+	FailureReason         string
+	DeliveredAt           time.Time
+	CompletedAt           time.Time
+	DisputedAt            time.Time
+	BuyerResponseDeadline time.Time
+	RevisionCountUsed     int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // CreateOrderParams carries the snapshot used to create an order.
@@ -108,11 +120,44 @@ type OrderRepository interface {
 	SaveQuestionSnapshots(ctx context.Context, params SaveQuestionSnapshotsParams) error
 	GetByID(ctx context.Context, orderID string) (*Order, error)
 	MarkPaid(ctx context.Context, orderID, paymentIntentID string) (*Order, error)
+	MarkFunded(ctx context.Context, orderID, paymentIntentID string) (*Order, error)
 	MarkFailed(ctx context.Context, orderID, reason string) (*Order, error)
 	SaveRequirementAnswers(ctx context.Context, params SaveRequirementAnswersParams) (*Order, error)
 	SaveBuyerInitialMessage(ctx context.Context, params SaveBuyerInitialMessageParams) (*Order, error)
 	AttachFile(ctx context.Context, params AttachFileParams) (*Order, error)
-	SaveCheckoutSession(ctx context.Context, orderID, checkoutURL string) error
+	SaveCheckoutSession(ctx context.Context, orderID, paymentIntentID, checkoutURL string) error
+	GetLifecycleSnapshot(ctx context.Context, orderID string) (*Order, error)
+	SaveDelivery(ctx context.Context, params SaveDeliveryParams) (*Order, error)
+	MarkReleasePending(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
+	RequestRevision(ctx context.Context, params RequestRevisionParams) (*Order, error)
+	OpenDispute(ctx context.Context, params OpenDisputeParams) (*Order, error)
+	MarkCompleted(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
+	MarkReleaseFailed(ctx context.Context, orderID, reason string) (*Order, error)
+}
+
+// SaveDeliveryParams stores one seller delivery transition.
+type SaveDeliveryParams struct {
+	OrderID       string
+	SellerID      string
+	Message       string
+	AttachmentIDs []string
+	RequestedAt   time.Time
+}
+
+// RequestRevisionParams stores one buyer revision request.
+type RequestRevisionParams struct {
+	OrderID     string
+	BuyerID     string
+	Reason      string
+	RequestedAt time.Time
+}
+
+// OpenDisputeParams stores one buyer dispute transition.
+type OpenDisputeParams struct {
+	OrderID     string
+	BuyerID     string
+	Reason      string
+	RequestedAt time.Time
 }
 
 // OrderReadRepository persists the order read-model projection.

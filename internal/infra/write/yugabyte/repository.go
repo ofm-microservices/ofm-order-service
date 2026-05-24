@@ -30,7 +30,10 @@ func New(db *sqlx.DB, log logging.Logger) (domain.OrderRepository, error) {
 
 const orderColumns = `
 order_id, saga_id, buyer_id, seller_id, gig_id, package_id, status, idempotency_key,
-COALESCE(payment_intent_id::text, ''), COALESCE(failure_reason, ''), created_at, updated_at`
+COALESCE(payment_intent_id::text, ''), COALESCE(payment_release_id::text, ''), COALESCE(failure_reason, ''),
+COALESCE(delivered_at, 'epoch'::timestamptz), COALESCE(completed_at, 'epoch'::timestamptz),
+COALESCE(disputed_at, 'epoch'::timestamptz), COALESCE(buyer_response_deadline, 'epoch'::timestamptz),
+COALESCE(revision_count_used, 0), created_at, updated_at`
 
 const orderSnapshotColumns = `
 gig_id, gig_title, package_id, package_tier, package_description, package_delivery_days,
@@ -84,13 +87,61 @@ SET status = $2, payment_intent_id = $3, updated_at = NOW()
 WHERE order_id = $1
 RETURNING ` + orderColumns
 
+const markOrderFundedQuery = `
+UPDATE orders
+SET status = $2, payment_intent_id = $3, updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
 const markOrderPaymentSessionQuery = `
 INSERT INTO order_checkout_sessions (order_id, checkout_url, created_at, updated_at)
 VALUES ($1, $2, NOW(), NOW())
 ON CONFLICT (order_id) DO UPDATE SET checkout_url = EXCLUDED.checkout_url, updated_at = NOW()
 `
 
+const markOrderCheckoutPendingQuery = `
+UPDATE orders
+SET status = $2, payment_intent_id = $3, updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
 const markOrderFailedQuery = `
+UPDATE orders
+SET status = $2, failure_reason = $3, updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const saveDeliveryQuery = `
+UPDATE orders
+SET status = $2, delivered_at = NOW(), updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const markReleasePendingQuery = `
+UPDATE orders
+SET status = $2, payment_release_id = NULLIF($3, ''), updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const requestRevisionQuery = `
+UPDATE orders
+SET status = $2, revision_count_used = revision_count_used + 1, updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const openDisputeQuery = `
+UPDATE orders
+SET status = $2, disputed_at = NOW(), updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const markOrderCompletedQuery = `
+UPDATE orders
+SET status = $2, payment_release_id = $3, completed_at = NOW(), updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const markReleaseFailedQuery = `
 UPDATE orders
 SET status = $2, failure_reason = $3, updated_at = NOW()
 WHERE order_id = $1
@@ -198,6 +249,21 @@ func (r *repo) MarkPaid(ctx context.Context, orderID, paymentIntentID string) (*
 	return r.GetByID(ctx, orderID)
 }
 
+func (r *repo) MarkFunded(ctx context.Context, orderID, paymentIntentID string) (*domain.Order, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveDB("yugabyte", "mark_funded", "orders", status, time.Since(started)) }()
+
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderFundedQuery, orderID, domain.OrderStatusFunded, paymentIntentID)); err != nil {
+		status = "error"
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, orderID)
+}
+
 func (r *repo) MarkFailed(ctx context.Context, orderID, reason string) (*domain.Order, error) {
 	started := time.Now()
 	status := "success"
@@ -234,9 +300,79 @@ func (r *repo) AttachFile(ctx context.Context, params domain.AttachFileParams) (
 	return r.GetByID(ctx, params.OrderID)
 }
 
-func (r *repo) SaveCheckoutSession(ctx context.Context, orderID, checkoutURL string) error {
+func (r *repo) SaveCheckoutSession(ctx context.Context, orderID, paymentIntentID, checkoutURL string) error {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderCheckoutPendingQuery, orderID, domain.OrderStatusPaymentPending, paymentIntentID)); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.ErrOrderNotFound
+		}
+		return err
+	}
 	_, err := r.db.ExecContext(ctx, markOrderPaymentSessionQuery, orderID, checkoutURL)
 	return err
+}
+
+func (r *repo) GetLifecycleSnapshot(ctx context.Context, orderID string) (*domain.Order, error) {
+	return r.GetByID(ctx, orderID)
+}
+
+func (r *repo) SaveDelivery(ctx context.Context, params domain.SaveDeliveryParams) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, saveDeliveryQuery, params.OrderID, domain.OrderStatusDelivered)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, params.OrderID)
+}
+
+func (r *repo) MarkReleasePending(ctx context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, markReleasePendingQuery, orderID, domain.OrderStatusReleasePending, paymentReleaseID)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, orderID)
+}
+
+func (r *repo) RequestRevision(ctx context.Context, params domain.RequestRevisionParams) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, requestRevisionQuery, params.OrderID, domain.OrderStatusRevisionRequested)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, params.OrderID)
+}
+
+func (r *repo) OpenDispute(ctx context.Context, params domain.OpenDisputeParams) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, openDisputeQuery, params.OrderID, domain.OrderStatusDisputed)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, params.OrderID)
+}
+
+func (r *repo) MarkCompleted(ctx context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderCompletedQuery, orderID, domain.OrderStatusCompleted, paymentReleaseID)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, orderID)
+}
+
+func (r *repo) MarkReleaseFailed(ctx context.Context, orderID, reason string) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, markReleaseFailedQuery, orderID, domain.OrderStatusReleaseFailed, reason)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, orderID)
 }
 
 func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*domain.Order, error) {
@@ -251,7 +387,13 @@ func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*doma
 		&order.Status,
 		&order.IdempotencyKey,
 		&order.PaymentIntentID,
+		&order.PaymentReleaseID,
 		&order.FailureReason,
+		&order.DeliveredAt,
+		&order.CompletedAt,
+		&order.DisputedAt,
+		&order.BuyerResponseDeadline,
+		&order.RevisionCountUsed,
 		&order.CreatedAt,
 		&order.UpdatedAt,
 	); err != nil {
@@ -299,7 +441,13 @@ func scanOrder(scanner rowScanner) (model.OrderRow, error) {
 		&row.Status,
 		&row.IdempotencyKey,
 		&row.PaymentIntentID,
+		&row.PaymentReleaseID,
 		&row.FailureReason,
+		&row.DeliveredAt,
+		&row.CompletedAt,
+		&row.DisputedAt,
+		&row.BuyerResponseDeadline,
+		&row.RevisionCountUsed,
 		&row.CreatedAt,
 		&row.UpdatedAt,
 	)
@@ -308,23 +456,29 @@ func scanOrder(scanner rowScanner) (model.OrderRow, error) {
 
 func mapRow(row model.OrderRow) *domain.Order {
 	return &domain.Order{
-		OrderID:             row.OrderID,
-		SagaID:              row.SagaID,
-		BuyerID:             row.BuyerID,
-		SellerID:            row.SellerID,
-		GigID:               row.GigID,
-		GigTitle:            row.GigTitle,
-		PackageID:           row.PackageID,
-		PackageTier:         row.PackageTier,
-		PackageDescription:  row.PackageDescription,
-		PackageDeliveryDays: row.PackageDeliveryDays,
-		PriceCents:          row.PriceCents,
-		Currency:            row.Currency,
-		Status:              row.Status,
-		IdempotencyKey:      row.IdempotencyKey,
-		PaymentIntentID:     row.PaymentIntentID,
-		FailureReason:       row.FailureReason,
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
+		OrderID:               row.OrderID,
+		SagaID:                row.SagaID,
+		BuyerID:               row.BuyerID,
+		SellerID:              row.SellerID,
+		GigID:                 row.GigID,
+		GigTitle:              row.GigTitle,
+		PackageID:             row.PackageID,
+		PackageTier:           row.PackageTier,
+		PackageDescription:    row.PackageDescription,
+		PackageDeliveryDays:   row.PackageDeliveryDays,
+		PriceCents:            row.PriceCents,
+		Currency:              row.Currency,
+		Status:                row.Status,
+		IdempotencyKey:        row.IdempotencyKey,
+		PaymentIntentID:       row.PaymentIntentID,
+		PaymentReleaseID:      row.PaymentReleaseID,
+		FailureReason:         row.FailureReason,
+		DeliveredAt:           row.DeliveredAt,
+		CompletedAt:           row.CompletedAt,
+		DisputedAt:            row.DisputedAt,
+		BuyerResponseDeadline: row.BuyerResponseDeadline,
+		RevisionCountUsed:     row.RevisionCountUsed,
+		CreatedAt:             row.CreatedAt,
+		UpdatedAt:             row.UpdatedAt,
 	}
 }

@@ -8,7 +8,13 @@ CREATE TABLE IF NOT EXISTS orders (
     status TEXT NOT NULL,
     idempotency_key TEXT NOT NULL UNIQUE,
     payment_intent_id UUID,
+    payment_release_id UUID,
     failure_reason TEXT,
+    delivered_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    disputed_at TIMESTAMPTZ,
+    buyer_response_deadline TIMESTAMPTZ,
+    revision_count_used INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -67,6 +73,27 @@ CREATE TABLE IF NOT EXISTS order_checkout_sessions (
     checkout_url TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS order_deliveries (
+    order_id UUID PRIMARY KEY,
+    seller_id UUID NOT NULL,
+    delivery_message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS order_revision_requests (
+    order_id UUID PRIMARY KEY,
+    buyer_id UUID NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS order_disputes (
+    order_id UUID PRIMARY KEY,
+    buyer_id UUID NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_buyer_id ON orders(buyer_id);
