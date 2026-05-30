@@ -48,7 +48,7 @@ func EnsureStream(cfg config.NATSConfig, log logging.Logger) error {
 	}
 	commands := &nats.StreamConfig{
 		Name:      cfg.OrderCommandsStream,
-		Subjects:  []string{cfg.OrderCreateSubject, cfg.OrderConfirmSubject, cfg.OrderFailSubject},
+		Subjects:  []string{cfg.OrderCreateSubject, cfg.OrderConfirmSubject, cfg.OrderFailSubject, cfg.OrderReleaseRequestSubject},
 		Storage:   nats.FileStorage,
 		Retention: nats.LimitsPolicy,
 		Replicas:  1,
