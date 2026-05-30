@@ -119,7 +119,7 @@ RETURNING ` + orderColumns
 
 const markReleasePendingQuery = `
 UPDATE orders
-SET status = $2, payment_release_id = NULLIF($3, ''), updated_at = NOW()
+SET status = $2, payment_release_id = NULLIF($3, '')::uuid, updated_at = NOW()
 WHERE order_id = $1
 RETURNING ` + orderColumns
 
@@ -137,7 +137,7 @@ RETURNING ` + orderColumns
 
 const markOrderCompletedQuery = `
 UPDATE orders
-SET status = $2, payment_release_id = $3, completed_at = NOW(), updated_at = NOW()
+SET status = $2, payment_release_id = NULLIF($3, '')::uuid, completed_at = NOW(), updated_at = NOW()
 WHERE order_id = $1
 RETURNING ` + orderColumns
 

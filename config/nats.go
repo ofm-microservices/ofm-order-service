@@ -14,6 +14,7 @@ type NATSConfig struct {
 	OrderCreateResultSubject string `env:"NATS_SUBJECT_ORDER_CREATE_RESULT" envDefault:"order.create.result"`
 	OrderConfirmSubject      string `env:"NATS_SUBJECT_ORDER_CONFIRM" envDefault:"order.confirm"`
 	OrderFailSubject         string `env:"NATS_SUBJECT_ORDER_FAIL" envDefault:"order.fail"`
+	OrderReleaseRequestSubject string `env:"NATS_SUBJECT_ORDER_RELEASE_REQUEST" envDefault:"order.release.request"`
 
 	OrderCreateDurable  string `env:"NATS_DURABLE_ORDER_CREATE" envDefault:"order_service_create"`
 	OrderConfirmDurable string `env:"NATS_DURABLE_ORDER_CONFIRM" envDefault:"order_service_confirm"`
