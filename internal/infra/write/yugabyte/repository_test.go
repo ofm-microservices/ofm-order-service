@@ -23,6 +23,7 @@ func (s *scanStub) Scan(dest ...any) error {
 		SagaID:                "saga-1",
 		BuyerID:               "buyer-1",
 		SellerID:              "seller-1",
+		SellerUsername:        "seller-name",
 		GigID:                 "gig-1",
 		PackageID:             "pkg-1",
 		Status:                "completed",
@@ -51,37 +52,39 @@ func (s *scanStub) Scan(dest ...any) error {
 			case 3:
 				*d = row.SellerID
 			case 4:
-				*d = row.GigID
+				*d = row.SellerUsername
 			case 5:
-				*d = row.PackageID
+				*d = row.GigID
 			case 6:
-				*d = row.Status
+				*d = row.PackageID
 			case 7:
-				*d = row.IdempotencyKey
+				*d = row.Status
 			case 8:
-				*d = row.PaymentIntentID
+				*d = row.IdempotencyKey
 			case 9:
-				*d = row.PaymentReleaseID
+				*d = row.PaymentIntentID
 			case 10:
+				*d = row.PaymentReleaseID
+			case 11:
 				*d = row.FailureReason
 			}
 		case *time.Time:
 			switch i {
-			case 11:
-				*d = row.DeliveredAt
 			case 12:
-				*d = row.CompletedAt
+				*d = row.DeliveredAt
 			case 13:
-				*d = row.DisputedAt
+				*d = row.CompletedAt
 			case 14:
+				*d = row.DisputedAt
+			case 15:
 				*d = row.BuyerResponseDeadline
-			case 16:
-				*d = row.CreatedAt
 			case 17:
+				*d = row.CreatedAt
+			case 18:
 				*d = row.UpdatedAt
 			}
 		case *int32:
-			if i == 15 {
+			if i == 16 {
 				*d = row.RevisionCountUsed
 			}
 		}
@@ -114,6 +117,7 @@ func TestMapRow(t *testing.T) {
 		SagaID:                "saga-1",
 		BuyerID:               "buyer-1",
 		SellerID:              "seller-1",
+		SellerUsername:        "seller-name",
 		GigID:                 "gig-1",
 		GigTitle:              "Gig",
 		PackageID:             "pkg-1",

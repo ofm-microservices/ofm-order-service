@@ -31,6 +31,7 @@ type Order struct {
 	SagaID                string
 	BuyerID               string
 	SellerID              string
+	SellerUsername        string
 	GigID                 string
 	GigTitle              string
 	PackageID             string
@@ -59,6 +60,7 @@ type CreateOrderParams struct {
 	SagaID              string
 	BuyerID             string
 	SellerID            string
+	SellerUsername      string
 	GigID               string
 	GigTitle            string
 	PackageID           string
@@ -133,6 +135,20 @@ type OrderRepository interface {
 	OpenDispute(ctx context.Context, params OpenDisputeParams) (*Order, error)
 	MarkCompleted(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
 	MarkReleaseFailed(ctx context.Context, orderID, reason string) (*Order, error)
+}
+
+// OrderGigSnapshot stores the immutable gig snapshot persisted with an order.
+type OrderGigSnapshot struct {
+	OrderID             string
+	GigID               string
+	GigTitle            string
+	PackageID           string
+	PackageTier         string
+	PackageDescription  string
+	PackageDeliveryDays int32
+	PriceCents          int64
+	Currency            string
+	SellerUsername      string
 }
 
 // SaveDeliveryParams stores one seller delivery transition.

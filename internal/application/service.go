@@ -53,6 +53,7 @@ func (s *service) Create(ctx context.Context, cmd CreateOrderCommand) error {
 		SagaID:              cmd.SagaID,
 		BuyerID:             cmd.BuyerID,
 		SellerID:            cmd.SellerID,
+		SellerUsername:      cmd.SellerUsername,
 		GigID:               cmd.GigID,
 		GigTitle:            cmd.GigTitle,
 		PackageID:           cmd.PackageID,
@@ -95,6 +96,7 @@ func (s *service) CreateDraftOrder(ctx context.Context, cmd CreateDraftOrderComm
 		SagaID:              cmd.SagaID,
 		BuyerID:             cmd.BuyerID,
 		SellerID:            cmd.SellerID,
+		SellerUsername:      cmd.SellerUsername,
 		GigID:               cmd.GigID,
 		GigTitle:            cmd.GigTitle,
 		PackageID:           cmd.PackageID,
@@ -136,15 +138,16 @@ func (s *service) GetOrderPaymentSnapshot(ctx context.Context, orderID string) (
 		return nil, err
 	}
 	return &OrderPaymentSnapshot{
-		OrderID:      order.OrderID,
-		SagaID:       order.SagaID,
-		BuyerID:      order.BuyerID,
-		SellerID:     order.SellerID,
-		GigTitle:     order.GigTitle,
-		PackageTitle: order.PackageTier,
-		PriceCents:   order.PriceCents,
-		Currency:     order.Currency,
-		Status:       order.Status,
+		OrderID:        order.OrderID,
+		SagaID:         order.SagaID,
+		BuyerID:        order.BuyerID,
+		SellerID:       order.SellerID,
+		SellerUsername: order.SellerUsername,
+		GigTitle:       order.GigTitle,
+		PackageTitle:   order.PackageTier,
+		PriceCents:     order.PriceCents,
+		Currency:       order.Currency,
+		Status:         order.Status,
 	}, nil
 }
 
@@ -235,6 +238,7 @@ func (s *service) GetOrderLifecycleSnapshot(ctx context.Context, orderID string)
 		SagaID:                order.SagaID,
 		BuyerID:               order.BuyerID,
 		SellerID:              order.SellerID,
+		SellerUsername:        order.SellerUsername,
 		GigID:                 order.GigID,
 		GigTitle:              order.GigTitle,
 		PackageID:             order.PackageID,

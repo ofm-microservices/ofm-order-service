@@ -6,6 +6,7 @@ type OrderCache struct {
 	SagaID              string `json:"saga_id"`
 	BuyerID             string `json:"buyer_id"`
 	SellerID            string `json:"seller_id"`
+	SellerUsername      string `json:"seller_username,omitempty"`
 	GigID               string `json:"gig_id"`
 	GigTitle            string `json:"gig_title"`
 	PackageID           string `json:"package_id"`
