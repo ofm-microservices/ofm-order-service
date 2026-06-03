@@ -72,11 +72,11 @@ func (s *server) CreateDraftOrder(ctx context.Context, req *orderwritev1.CreateD
 			SortOrder:   q.GetSortOrder(),
 		})
 	}
-	res, err := s.svc.CreateDraftOrder(ctx, app.CreateDraftOrderCommand{SagaID: req.GetSagaId(), OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), SellerID: req.GetSellerUserId(), GigID: req.GetGigId(), GigTitle: req.GetGigTitleSnapshot(), PackageID: req.GetPackageId(), PackageTier: req.GetPackageTitleSnapshot(), PackageDescription: req.GetPackageDescriptionSnapshot(), PriceCents: req.GetPriceAmountSnapshot(), Currency: req.GetPriceCurrencySnapshot(), PackageDeliveryDays: req.GetDeliveryDaysSnapshot(), Questions: questions, IdempotencyKey: req.GetIdempotencyKey(), RequestedAt: req.GetRequestedAt()})
+	res, err := s.svc.CreateDraftOrder(ctx, app.CreateDraftOrderCommand{SagaID: req.GetSagaId(), OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), SellerID: req.GetSellerUserId(), SellerUsername: req.GetSellerUsername(), GigID: req.GetGigId(), GigTitle: req.GetGigTitleSnapshot(), PackageID: req.GetPackageId(), PackageTier: req.GetPackageTitleSnapshot(), PackageDescription: req.GetPackageDescriptionSnapshot(), PriceCents: req.GetPriceAmountSnapshot(), Currency: req.GetPriceCurrencySnapshot(), PackageDeliveryDays: req.GetDeliveryDaysSnapshot(), Questions: questions, IdempotencyKey: req.GetIdempotencyKey(), RequestedAt: req.GetRequestedAt()})
 	if err != nil {
 		return nil, err
 	}
-	return &orderwritev1.CreateDraftOrderResponse{Order: &orderwritev1.OrderSnapshot{OrderId: res.OrderID, Status: res.Status}, Questions: req.GetQuestions()}, nil
+	return &orderwritev1.CreateDraftOrderResponse{Order: &orderwritev1.OrderSnapshot{OrderId: res.OrderID, SellerUsername: req.GetSellerUsername(), Status: res.Status}, Questions: req.GetQuestions()}, nil
 }
 func (s *server) SaveRequirementAnswers(ctx context.Context, req *orderwritev1.SaveRequirementAnswersRequest) (*orderwritev1.SaveRequirementAnswersResponse, error) {
 	answers := make([]app.OrderAnswer, 0, len(req.GetAnswers()))
@@ -108,7 +108,7 @@ func (s *server) GetOrderPaymentSnapshot(ctx context.Context, req *orderwritev1.
 	if err != nil {
 		return nil, err
 	}
-	return &orderwritev1.GetOrderPaymentSnapshotResponse{Order: &orderwritev1.OrderSnapshot{OrderId: snap.OrderID, SagaId: snap.SagaID, BuyerUserId: snap.BuyerID, SellerUserId: snap.SellerID, GigTitleSnapshot: snap.GigTitle, PackageTitleSnapshot: snap.PackageTitle, PriceAmountSnapshot: snap.PriceCents, PriceCurrencySnapshot: snap.Currency, Status: snap.Status}}, nil
+	return &orderwritev1.GetOrderPaymentSnapshotResponse{Order: &orderwritev1.OrderSnapshot{OrderId: snap.OrderID, SagaId: snap.SagaID, BuyerUserId: snap.BuyerID, SellerUserId: snap.SellerID, SellerUsername: snap.SellerUsername, GigTitleSnapshot: snap.GigTitle, PackageTitleSnapshot: snap.PackageTitle, PriceAmountSnapshot: snap.PriceCents, PriceCurrencySnapshot: snap.Currency, Status: snap.Status}}, nil
 }
 func (s *server) MarkPaymentPending(ctx context.Context, req *orderwritev1.MarkPaymentPendingRequest) (*orderwritev1.MarkPaymentPendingResponse, error) {
 	_, err := s.svc.MarkPaymentPending(ctx, app.MarkPaymentPendingCommand{OrderID: req.GetOrderId(), PaymentIntentID: req.GetPaymentId(), CheckoutURL: req.GetCheckoutUrl(), OccurredAt: req.GetRequestedAt()})

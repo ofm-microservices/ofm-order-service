@@ -59,6 +59,7 @@ type CreateOrderCommand struct {
 	OrderID             string
 	BuyerID             string
 	SellerID            string
+	SellerUsername      string
 	GigID               string
 	GigTitle            string
 	PackageID           string
@@ -93,6 +94,7 @@ type CreateDraftOrderCommand struct {
 	OrderID             string
 	BuyerID             string
 	SellerID            string
+	SellerUsername      string
 	GigID               string
 	GigTitle            string
 	PackageID           string
@@ -124,15 +126,16 @@ type CreateDraftOrderResult struct {
 
 // OrderPaymentSnapshot returns the current immutable payment-facing snapshot.
 type OrderPaymentSnapshot struct {
-	OrderID      string
-	SagaID       string
-	BuyerID      string
-	SellerID     string
-	GigTitle     string
-	PackageTitle string
-	PriceCents   int64
-	Currency     string
-	Status       string
+	OrderID        string
+	SagaID         string
+	BuyerID        string
+	SellerID       string
+	SellerUsername string
+	GigTitle       string
+	PackageTitle   string
+	PriceCents     int64
+	Currency       string
+	Status         string
 }
 
 // OrderLifecycleSnapshot returns the state needed by the saga for delivery and completion.
@@ -141,6 +144,7 @@ type OrderLifecycleSnapshot struct {
 	SagaID                string
 	BuyerID               string
 	SellerID              string
+	SellerUsername        string
 	GigID                 string
 	GigTitle              string
 	PackageID             string

@@ -44,6 +44,7 @@ func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 		SagaID:              order.SagaID,
 		BuyerID:             order.BuyerID,
 		SellerID:            order.SellerID,
+		SellerUsername:      order.SellerUsername,
 		GigID:               order.GigID,
 		GigTitle:            order.GigTitle,
 		PackageID:           order.PackageID,

@@ -29,33 +29,34 @@ func New(db *sqlx.DB, log logging.Logger) (domain.OrderRepository, error) {
 }
 
 const orderColumns = `
-order_id, saga_id, buyer_id, seller_id, gig_id, package_id, status, idempotency_key,
+order_id, saga_id, buyer_id, seller_id, seller_username, gig_id, package_id, status, idempotency_key,
 COALESCE(payment_intent_id::text, ''), COALESCE(payment_release_id::text, ''), COALESCE(failure_reason, ''),
 COALESCE(delivered_at, 'epoch'::timestamptz), COALESCE(completed_at, 'epoch'::timestamptz),
 COALESCE(disputed_at, 'epoch'::timestamptz), COALESCE(buyer_response_deadline, 'epoch'::timestamptz),
 COALESCE(revision_count_used, 0), created_at, updated_at`
 
 const orderSnapshotColumns = `
-gig_id, gig_title, package_id, package_tier, package_description, package_delivery_days,
+gig_id, seller_username, gig_title, package_id, package_tier, package_description, package_delivery_days,
 price_cents, currency, created_at`
 
 const createOrderQuery = `
 INSERT INTO orders (
-	order_id, saga_id, buyer_id, seller_id, gig_id, package_id, status, idempotency_key,
+	order_id, saga_id, buyer_id, seller_id, seller_username, gig_id, package_id, status, idempotency_key,
 	created_at, updated_at
 ) VALUES (
-	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+	$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 )
 ON CONFLICT (order_id) DO UPDATE SET updated_at = orders.updated_at
 RETURNING ` + orderColumns
 
 const createOrderSnapshotQuery = `
 INSERT INTO order_gig_snapshot (
-	order_id, gig_id, gig_title, package_id, package_tier, package_description, package_delivery_days,
+	order_id, gig_id, seller_username, gig_title, package_id, package_tier, package_description, package_delivery_days,
 	price_cents, currency, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 ON CONFLICT (order_id) DO UPDATE SET
 	gig_id = EXCLUDED.gig_id,
+	seller_username = EXCLUDED.seller_username,
 	gig_title = EXCLUDED.gig_title,
 	package_id = EXCLUDED.package_id,
 	package_tier = EXCLUDED.package_tier,
@@ -181,6 +182,7 @@ func (r *repo) Create(ctx context.Context, params domain.CreateOrderParams) (*do
 		params.SagaID,
 		params.BuyerID,
 		params.SellerID,
+		params.SellerUsername,
 		params.GigID,
 		params.PackageID,
 		domain.OrderStatusRequirementsPending,
@@ -195,6 +197,7 @@ func (r *repo) Create(ctx context.Context, params domain.CreateOrderParams) (*do
 	if _, err := tx.ExecContext(ctx, createOrderSnapshotQuery,
 		params.OrderID,
 		params.GigID,
+		params.SellerUsername,
 		params.GigTitle,
 		params.PackageID,
 		params.PackageTier,
@@ -382,6 +385,7 @@ func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*doma
 		&order.SagaID,
 		&order.BuyerID,
 		&order.SellerID,
+		&order.SellerUsername,
 		&order.GigID,
 		&order.PackageID,
 		&order.Status,
@@ -403,6 +407,7 @@ func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*doma
 	if err := r.db.QueryRowContext(ctx, getOrderSnapshotByIDQuery, orderID).Scan(
 		&snap.OrderID,
 		&snap.GigID,
+		&snap.SellerUsername,
 		&snap.GigTitle,
 		&snap.PackageID,
 		&snap.PackageTier,
@@ -415,6 +420,7 @@ func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*doma
 		return nil, err
 	}
 	order.GigID = snap.GigID
+	order.SellerUsername = snap.SellerUsername
 	order.GigTitle = snap.GigTitle
 	order.PackageID = snap.PackageID
 	order.PackageTier = snap.PackageTier
@@ -436,6 +442,7 @@ func scanOrder(scanner rowScanner) (model.OrderRow, error) {
 		&row.SagaID,
 		&row.BuyerID,
 		&row.SellerID,
+		&row.SellerUsername,
 		&row.GigID,
 		&row.PackageID,
 		&row.Status,
@@ -460,6 +467,7 @@ func mapRow(row model.OrderRow) *domain.Order {
 		SagaID:                row.SagaID,
 		BuyerID:               row.BuyerID,
 		SellerID:              row.SellerID,
+		SellerUsername:        row.SellerUsername,
 		GigID:                 row.GigID,
 		GigTitle:              row.GigTitle,
 		PackageID:             row.PackageID,
