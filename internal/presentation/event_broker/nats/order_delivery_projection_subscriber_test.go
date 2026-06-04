@@ -25,6 +25,9 @@ func (deliveryReadStub) UpsertRequirements(context.Context, string, *domain.Orde
 func (deliveryReadStub) UpsertDelivery(context.Context, string, *domain.OrderDeliveryProjection) error {
 	return nil
 }
+func (deliveryReadStub) GetDeliveryByID(context.Context, string) (*domain.OrderDeliveryProjection, error) {
+	return nil, nil
+}
 func (deliveryReadStub) GetRequirementsByID(context.Context, string) (*domain.OrderRequirements, error) {
 	return nil, nil
 }

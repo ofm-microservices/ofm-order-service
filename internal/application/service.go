@@ -293,6 +293,74 @@ func (s *service) GetOrderRequirementsByID(ctx context.Context, cmd GetOrderRequ
 	return toOrderRequirementsResult(reqs), nil
 }
 
+func (s *service) GetOrderDeliveryByID(ctx context.Context, cmd GetOrderDeliveryByIDCommand) (*OrderDeliveryProjection, error) {
+	orderID := strings.TrimSpace(cmd.OrderID)
+	userID := strings.TrimSpace(cmd.UserID)
+	if orderID == "" || userID == "" {
+		return nil, domain.ErrOrderNotFound
+	}
+
+	if _, err := s.GetOrderPreviewByID(ctx, GetOrderPreviewByIDCommand{
+		OrderID: orderID,
+		UserID:  userID,
+		Role:    "buyer",
+	}); err != nil && !errors.Is(err, domain.ErrOrderNotFound) {
+		s.log.Warn("order preview access check failed, continuing with delivery lookup",
+			logging.Operation("order.delivery.preview_access_check"),
+			logging.String("order_id", orderID),
+			logging.String("user_id", userID),
+			logging.Err(err),
+		)
+	} else if err != nil {
+		order, orderErr := s.orders.GetByID(ctx, orderID)
+		if orderErr != nil || order == nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, domain.ErrOrderNotOwned
+	}
+
+	delivery, err := s.read.GetDeliveryByID(ctx, orderID)
+	if err == nil && delivery != nil {
+		return s.toOrderDeliveryProjection(ctx, delivery)
+	}
+	if err != nil && !errors.Is(err, domain.ErrOrderNotFound) {
+		s.log.Warn("order delivery cache lookup failed, loading canonical delivery",
+			logging.Operation("order.delivery.cache_lookup"),
+			logging.String("order_id", orderID),
+			logging.Err(err),
+		)
+	}
+
+	projection, err := s.BuildOrderDeliveryProjection(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if projection == nil || projection.OrderDelivery == nil {
+		return nil, domain.ErrOrderNotFound
+	}
+	if err := s.read.UpsertDelivery(ctx, orderID, toDomainOrderDeliveryProjection(orderID, projection)); err != nil {
+		s.log.Warn("order delivery cache upsert failed during lookup",
+			logging.Operation("order.delivery.cache_refresh"),
+			logging.String("order_id", orderID),
+			logging.Err(err),
+		)
+	}
+	if err := s.publishOrderDeliveryProjection(ctx, &OrderDeliveryProjectionRequest{
+		OrderID:         orderID,
+		SellerID:        projection.OrderDelivery.SellerID,
+		DeliveryMessage: projection.OrderDelivery.DeliveryMessage,
+		AttachmentIDs:   deliveryFileIDs(projection.OrderDeliveryFiles),
+		OccurredAt:      projection.OrderDelivery.CreatedAt,
+	}); err != nil {
+		s.log.Warn("publish order delivery projection failed during lookup",
+			logging.Operation("order.delivery.publish"),
+			logging.String("order_id", orderID),
+			logging.Err(err),
+		)
+	}
+	return projection, nil
+}
+
 func (s *service) MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error) {
 	if err := s.orders.SaveCheckoutSession(ctx, cmd.OrderID, cmd.PaymentIntentID, cmd.CheckoutURL); err != nil {
 		return nil, err
@@ -633,20 +701,29 @@ func (s *service) publishOrderDeliveryProjection(ctx context.Context, req *Order
 	return nil
 }
 
+func deliveryFileIDs(files []OrderDeliveryFile) []string {
+	ids := make([]string, 0, len(files))
+	for _, file := range files {
+		ids = append(ids, strings.TrimSpace(file.FileID))
+	}
+	return ids
+}
+
 func (s *service) toOrderDeliveryProjection(ctx context.Context, projection *domain.OrderDeliveryProjection) (*OrderDeliveryProjection, error) {
 	if projection == nil || projection.Delivery == nil {
 		return nil, nil
 	}
 	out := &OrderDeliveryProjection{
 		OrderDelivery: &OrderDelivery{
+			SellerID:        strings.TrimSpace(projection.Delivery.SellerID),
 			DeliveryMessage: strings.TrimSpace(projection.Delivery.DeliveryMessage),
 			CreatedAt:       projection.Delivery.CreatedAt.UTC().Format(time.RFC3339Nano),
 		},
 		OrderDeliveryFiles: make([]OrderDeliveryFile, 0, len(projection.DeliveryFiles)),
 	}
 	for _, file := range projection.DeliveryFiles {
-		fileURL := ""
-		if s.files != nil {
+		fileURL := strings.TrimSpace(file.FileURL)
+		if fileURL == "" && s.files != nil {
 			url, err := s.files.GetFileURL(ctx, file.FileID)
 			if err != nil {
 				s.log.Error("resolve delivery file url failed",
@@ -677,6 +754,7 @@ func toDomainOrderDeliveryProjection(orderID string, projection *OrderDeliveryPr
 		OrderID: orderID,
 		Delivery: &domain.OrderDelivery{
 			OrderID:         orderID,
+			SellerID:        strings.TrimSpace(projection.OrderDelivery.SellerID),
 			DeliveryMessage: strings.TrimSpace(projection.OrderDelivery.DeliveryMessage),
 		},
 		DeliveryFiles: make([]domain.OrderDeliveryFile, 0, len(projection.OrderDeliveryFiles)),

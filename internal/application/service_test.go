@@ -182,6 +182,7 @@ type testRead struct {
 	orders       []*domain.Order
 	requirements *domain.OrderRequirements
 	deliveries   []*domain.OrderDeliveryProjection
+	deliveryErr  error
 }
 
 func (r *testRead) Upsert(_ context.Context, order *domain.Order) error {
@@ -211,6 +212,32 @@ func (r *testRead) UpsertRequirements(context.Context, string, *domain.OrderRequ
 func (r *testRead) UpsertDelivery(_ context.Context, _ string, delivery *domain.OrderDeliveryProjection) error {
 	r.deliveries = append(r.deliveries, delivery)
 	return nil
+}
+
+func (r *testRead) GetDeliveryByID(_ context.Context, orderID string) (*domain.OrderDeliveryProjection, error) {
+	if r.deliveryErr != nil {
+		return nil, r.deliveryErr
+	}
+	if len(r.deliveries) > 0 {
+		return r.deliveries[len(r.deliveries)-1], nil
+	}
+	return &domain.OrderDeliveryProjection{
+		OrderID: orderID,
+		Delivery: &domain.OrderDelivery{
+			OrderID:         orderID,
+			DeliveryMessage: "done",
+			CreatedAt:       time.Unix(10, 0).UTC(),
+		},
+		DeliveryFiles: []domain.OrderDeliveryFile{
+			{
+				OrderID:   orderID,
+				FileID:    "file-1",
+				FileURL:   "https://cdn.example.com/file-1.png",
+				SortOrder: 1,
+				CreatedAt: time.Unix(11, 0).UTC(),
+			},
+		},
+	}, nil
 }
 
 func (r *testRead) GetRequirementsByID(_ context.Context, orderID string) (*domain.OrderRequirements, error) {
@@ -517,5 +544,42 @@ func TestGetOrderRequirementsByIDReturnsSnapshot(t *testing.T) {
 	}
 	if res.CustomerMessage == nil || res.CustomerMessage.Message != "Hello" {
 		t.Fatalf("customer message = %#v", res.CustomerMessage)
+	}
+}
+
+func TestGetOrderDeliveryByIDFallsBackToCanonicalProjection(t *testing.T) {
+	orders := &testOrders{snap: &domain.Order{
+		OrderID:  "order-1",
+		BuyerID:  "buyer-1",
+		SellerID: "seller-1",
+	}}
+	read := &testRead{
+		orders:      []*domain.Order{{OrderID: "order-1", BuyerID: "buyer-1", SellerID: "seller-1"}},
+		deliveryErr: domain.ErrOrderNotFound,
+	}
+	broker := &testBroker{}
+	svc, err := New(orders, read, &testFiles{url: "https://cdn.example.com/file-1.png"}, &testUsers{}, broker, Config{}, testLogger{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	res, err := svc.GetOrderDeliveryByID(context.Background(), GetOrderDeliveryByIDCommand{OrderID: "order-1", UserID: "seller-1"})
+	if err != nil {
+		t.Fatalf("GetOrderDeliveryByID: %v", err)
+	}
+	if res == nil || res.OrderDelivery == nil {
+		t.Fatalf("unexpected result: %#v", res)
+	}
+	if got := res.OrderDelivery.DeliveryMessage; got != "done" {
+		t.Fatalf("delivery message = %q, want done", got)
+	}
+	if len(res.OrderDeliveryFiles) != 1 || res.OrderDeliveryFiles[0].FileURL == "" {
+		t.Fatalf("delivery files = %#v", res.OrderDeliveryFiles)
+	}
+	if len(read.deliveries) != 1 {
+		t.Fatalf("expected delivery cache upsert, got %#v", read.deliveries)
+	}
+	if len(broker.subjects) == 0 || broker.subjects[len(broker.subjects)-1] != "order.projection.delivery" {
+		t.Fatalf("published subjects = %#v", broker.subjects)
 	}
 }

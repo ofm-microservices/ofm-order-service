@@ -257,6 +257,7 @@ type OrderReadRepository interface {
 	GetPreviewByID(ctx context.Context, orderID string) (*OrderPreview, error)
 	UpsertRequirements(ctx context.Context, orderID string, requirements *OrderRequirements) error
 	UpsertDelivery(ctx context.Context, orderID string, delivery *OrderDeliveryProjection) error
+	GetDeliveryByID(ctx context.Context, orderID string) (*OrderDeliveryProjection, error)
 	GetRequirementsByID(ctx context.Context, orderID string) (*OrderRequirements, error)
 }
 

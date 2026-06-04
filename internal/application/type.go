@@ -16,6 +16,7 @@ type Service interface {
 	GetOrderPaymentSnapshot(ctx context.Context, orderID string) (*OrderPaymentSnapshot, error)
 	GetOrderPreviewByID(ctx context.Context, cmd GetOrderPreviewByIDCommand) (*OrderPreviewResult, error)
 	GetOrderRequirementsByID(ctx context.Context, cmd GetOrderRequirementsByIDCommand) (*OrderRequirementsResult, error)
+	GetOrderDeliveryByID(ctx context.Context, cmd GetOrderDeliveryByIDCommand) (*OrderDeliveryProjection, error)
 	MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error)
 	MarkOrderFunded(ctx context.Context, cmd MarkOrderFundedCommand) (*MarkOrderFundedResult, error)
 	MarkPaymentFailed(ctx context.Context, cmd MarkPaymentFailedCommand) (*MarkPaymentFailedResult, error)
@@ -99,6 +100,13 @@ type GetOrderRequirementsByIDCommand struct {
 	UserID  string
 }
 
+// GetOrderDeliveryByIDCommand carries the authenticated user context for the
+// user-scoped order delivery lookup.
+type GetOrderDeliveryByIDCommand struct {
+	OrderID string
+	UserID  string
+}
+
 // OrderPreviewResult returns the minimal order preview payload.
 type OrderPreviewResult struct {
 	Order      *OrderPreview
@@ -178,6 +186,7 @@ type OrderDeliveryProjection struct {
 
 // OrderDelivery stores one seller delivery snapshot in the application layer.
 type OrderDelivery struct {
+	SellerID        string
 	DeliveryMessage string
 	CreatedAt       string
 }
