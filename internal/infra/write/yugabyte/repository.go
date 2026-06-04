@@ -155,10 +155,41 @@ VALUES ($1, $2, $3, NOW())
 ON CONFLICT (order_id, question_id) DO UPDATE SET answer_value = EXCLUDED.answer_value
 `
 
+const hasConfirmPrerequisitesQuery = `
+SELECT
+	NOT EXISTS (
+		SELECT 1
+		FROM order_question_snapshots q
+		WHERE q.order_id = $1
+		  AND q.required = TRUE
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM order_requirement_answers a
+			WHERE a.order_id = q.order_id
+			  AND a.question_id = q.question_id
+		  )
+	) AS requirements_completed,
+	EXISTS (
+		SELECT 1
+		FROM order_buyer_messages m
+		WHERE m.order_id = $1
+		  AND NULLIF(trim(m.message), '') IS NOT NULL
+	) AS message_completed
+`
+
 const saveBuyerInitialMessageQuery = `
 INSERT INTO order_buyer_messages (order_id, message, created_at, updated_at)
 VALUES ($1, $2, NOW(), NOW())
 ON CONFLICT (order_id) DO UPDATE SET message = EXCLUDED.message, updated_at = NOW()
+`
+
+const hasBuyerInitialMessageQuery = `
+SELECT EXISTS (
+	SELECT 1
+	FROM order_buyer_messages
+	WHERE order_id = $1
+	  AND NULLIF(trim(message), '') IS NOT NULL
+)
 `
 
 const attachFileQuery = `
@@ -289,6 +320,15 @@ func (r *repo) SaveRequirementAnswers(ctx context.Context, params domain.SaveReq
 		return nil, err
 	}
 	return r.GetByID(ctx, params.OrderID)
+}
+
+func (r *repo) HasConfirmPrerequisites(ctx context.Context, orderID string) (bool, bool, error) {
+	var requirementsCompleted bool
+	var messageCompleted bool
+	if err := r.db.QueryRowContext(ctx, hasConfirmPrerequisitesQuery, orderID).Scan(&requirementsCompleted, &messageCompleted); err != nil {
+		return false, false, err
+	}
+	return requirementsCompleted, messageCompleted, nil
 }
 
 func (r *repo) SaveBuyerInitialMessage(ctx context.Context, params domain.SaveBuyerInitialMessageParams) (*domain.Order, error) {

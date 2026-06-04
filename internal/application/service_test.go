@@ -72,6 +72,10 @@ func (r *testOrders) GetByID(_ context.Context, orderID string) (*domain.Order, 
 	return &domain.Order{OrderID: orderID, Status: domain.OrderStatusRequirementsPending}, nil
 }
 
+func (r *testOrders) HasConfirmPrerequisites(context.Context, string) (bool, bool, error) {
+	return true, true, nil
+}
+
 func (r *testOrders) MarkPaid(context.Context, string, string) (*domain.Order, error) {
 	return nil, nil
 }
