@@ -1,6 +1,15 @@
 package nats
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	ErrNilEventBroker         = errors.New("event broker is nil")
+	ErrNilOrderReadRepository = errors.New("order read repository is nil")
+	ErrNilLogger              = errors.New("logger is nil")
+)
 
 // WrapConnectToNATSError annotates connection failures.
 func WrapConnectToNATSError(err error) error { return fmt.Errorf("connect nats: %w", err) }

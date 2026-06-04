@@ -32,8 +32,12 @@ type Order struct {
 	BuyerID               string
 	SellerID              string
 	SellerUsername        string
+	Customer              *OrderPreviewUser
+	Freelancer            *OrderPreviewUser
 	GigID                 string
 	GigTitle              string
+	PictureFileID         string
+	PictureURL            string
 	PackageID             string
 	PackageTier           string
 	PackageDescription    string
@@ -63,6 +67,7 @@ type CreateOrderParams struct {
 	SellerUsername      string
 	GigID               string
 	GigTitle            string
+	PictureFileID       string
 	PackageID           string
 	PackageTier         string
 	PackageDescription  string
@@ -142,6 +147,8 @@ type OrderGigSnapshot struct {
 	OrderID             string
 	GigID               string
 	GigTitle            string
+	PictureFileID       string
+	PictureURL          string
 	PackageID           string
 	PackageTier         string
 	PackageDescription  string
@@ -179,4 +186,35 @@ type OpenDisputeParams struct {
 // OrderReadRepository persists the order read-model projection.
 type OrderReadRepository interface {
 	Upsert(ctx context.Context, order *Order) error
+	GetByID(ctx context.Context, orderID string) (*Order, error)
+	GetPreviewByID(ctx context.Context, orderID string) (*OrderPreview, error)
+}
+
+// OrderPreviewUser stores a user snapshot projected into an order page.
+type OrderPreviewUser struct {
+	UserID      string
+	Username    string
+	DisplayName string
+	AvatarURL   string
+}
+
+// OrderPreview is the public order summary returned by the preview endpoint.
+type OrderPreview struct {
+	OrderID   string
+	CreatedAt time.Time
+	Status    string
+}
+
+// OrderPreviewGig stores the gig snapshot returned alongside the order preview.
+type OrderPreviewGig struct {
+	GigID               string
+	Title               string
+	PictureFileID       string
+	PictureURL          string
+	PackageID           string
+	PackageTitle        string
+	PriceCents          int64
+	Currency            string
+	Description         string
+	PackageDeliveryDays int32
 }

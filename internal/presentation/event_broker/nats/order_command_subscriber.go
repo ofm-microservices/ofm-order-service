@@ -48,6 +48,7 @@ func (s *orderCommandSubscriber) handleCreate(ctx context.Context, _ string, pay
 		SellerUsername:      cmd.GetSellerUsername(),
 		GigID:               cmd.GetGigId(),
 		GigTitle:            cmd.GetGigTitle(),
+		PictureFileID:       cmd.GetPictureFileId(),
 		PackageID:           cmd.GetPackageId(),
 		PackageTier:         cmd.GetPackageTier(),
 		PackageDescription:  cmd.GetPackageDescription(),

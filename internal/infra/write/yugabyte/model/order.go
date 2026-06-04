@@ -11,6 +11,7 @@ type OrderRow struct {
 	SellerUsername        string    `db:"seller_username"`
 	GigID                 string    `db:"gig_id"`
 	GigTitle              string    `db:"gig_title"`
+	PictureFileID         string    `db:"picture_file_id"`
 	PackageID             string    `db:"package_id"`
 	PackageTier           string    `db:"package_tier"`
 	PackageDescription    string    `db:"package_description"`
@@ -37,6 +38,7 @@ type OrderGigSnapshotRow struct {
 	GigID               string    `db:"gig_id"`
 	SellerUsername      string    `db:"seller_username"`
 	GigTitle            string    `db:"gig_title"`
+	PictureFileID       string    `db:"picture_file_id"`
 	PackageID           string    `db:"package_id"`
 	PackageTier         string    `db:"package_tier"`
 	PackageDescription  string    `db:"package_description"`

@@ -3,16 +3,21 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
 	"github.com/ofm-microservices/ofm-common/pkg/observability/metrics"
+	commonv1 "github.com/ofm-microservices/ofm-common/proto/common/v1"
 	orderwritev1 "github.com/ofm-microservices/ofm-common/proto/orderwrite/v1"
 	otelgrpc "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	grpcpkg "google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"order-service/config"
 	app "order-service/internal/application"
+	"order-service/internal/domain"
 )
 
 type server struct {
@@ -72,7 +77,7 @@ func (s *server) CreateDraftOrder(ctx context.Context, req *orderwritev1.CreateD
 			SortOrder:   q.GetSortOrder(),
 		})
 	}
-	res, err := s.svc.CreateDraftOrder(ctx, app.CreateDraftOrderCommand{SagaID: req.GetSagaId(), OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), SellerID: req.GetSellerUserId(), SellerUsername: req.GetSellerUsername(), GigID: req.GetGigId(), GigTitle: req.GetGigTitleSnapshot(), PackageID: req.GetPackageId(), PackageTier: req.GetPackageTitleSnapshot(), PackageDescription: req.GetPackageDescriptionSnapshot(), PriceCents: req.GetPriceAmountSnapshot(), Currency: req.GetPriceCurrencySnapshot(), PackageDeliveryDays: req.GetDeliveryDaysSnapshot(), Questions: questions, IdempotencyKey: req.GetIdempotencyKey(), RequestedAt: req.GetRequestedAt()})
+	res, err := s.svc.CreateDraftOrder(ctx, app.CreateDraftOrderCommand{SagaID: req.GetSagaId(), OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), SellerID: req.GetSellerUserId(), SellerUsername: req.GetSellerUsername(), GigID: req.GetGigId(), GigTitle: req.GetGigTitleSnapshot(), PictureFileID: req.GetPictureFileId(), PackageID: req.GetPackageId(), PackageTier: req.GetPackageTitleSnapshot(), PackageDescription: req.GetPackageDescriptionSnapshot(), PriceCents: req.GetPriceAmountSnapshot(), Currency: req.GetPriceCurrencySnapshot(), PackageDeliveryDays: req.GetDeliveryDaysSnapshot(), Questions: questions, IdempotencyKey: req.GetIdempotencyKey(), RequestedAt: req.GetRequestedAt()})
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +114,68 @@ func (s *server) GetOrderPaymentSnapshot(ctx context.Context, req *orderwritev1.
 		return nil, err
 	}
 	return &orderwritev1.GetOrderPaymentSnapshotResponse{Order: &orderwritev1.OrderSnapshot{OrderId: snap.OrderID, SagaId: snap.SagaID, BuyerUserId: snap.BuyerID, SellerUserId: snap.SellerID, SellerUsername: snap.SellerUsername, GigTitleSnapshot: snap.GigTitle, PackageTitleSnapshot: snap.PackageTitle, PriceAmountSnapshot: snap.PriceCents, PriceCurrencySnapshot: snap.Currency, Status: snap.Status}}, nil
+}
+
+func (s *server) GetOrderPreviewByID(ctx context.Context, req *orderwritev1.GetOrderPreviewByIDRequest) (*orderwritev1.GetOrderPreviewByIDResponse, error) {
+	role := ""
+	switch req.GetRole() {
+	case commonv1.ParticipantRole_PARTICIPANT_ROLE_BUYER:
+		role = "buyer"
+	case commonv1.ParticipantRole_PARTICIPANT_ROLE_SELLER:
+		role = "seller"
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid participant role")
+	}
+	res, err := s.svc.GetOrderPreviewByID(ctx, app.GetOrderPreviewByIDCommand{
+		OrderID: req.GetOrderId(),
+		UserID:  req.GetUserId(),
+		Role:    role,
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			return nil, status.Error(codes.NotFound, domain.ErrOrderNotFound.Error())
+		}
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	resp := &orderwritev1.GetOrderPreviewByIDResponse{}
+	if res.Order != nil {
+		resp.Order = &orderwritev1.OrderPreview{
+			OrderId:   res.Order.OrderID,
+			CreatedAt: res.Order.CreatedAt,
+			Status:    res.Order.Status,
+		}
+	}
+	if res.Gig != nil {
+		resp.Gig = &orderwritev1.OrderGigSnapshot{
+			GigId:               res.Gig.GigID,
+			Title:               res.Gig.Title,
+			PictureFileId:       res.Gig.PictureFileID,
+			PictureUrl:          res.Gig.PictureURL,
+			PackageId:           res.Gig.PackageID,
+			PackageTitle:        res.Gig.PackageTitle,
+			PriceCents:          res.Gig.PriceCents,
+			Currency:            res.Gig.Currency,
+			Description:         res.Gig.Description,
+			PackageDeliveryDays: res.Gig.PackageDeliveryDays,
+		}
+	}
+	if res.Customer != nil {
+		resp.Customer = &orderwritev1.OrderUserSnapshot{
+			UserId:      res.Customer.UserID,
+			Username:    res.Customer.Username,
+			DisplayName: res.Customer.DisplayName,
+			AvatarUrl:   res.Customer.AvatarURL,
+		}
+	}
+	if res.Freelancer != nil {
+		resp.Freelancer = &orderwritev1.OrderUserSnapshot{
+			UserId:      res.Freelancer.UserID,
+			Username:    res.Freelancer.Username,
+			DisplayName: res.Freelancer.DisplayName,
+			AvatarUrl:   res.Freelancer.AvatarURL,
+		}
+	}
+	return resp, nil
 }
 func (s *server) MarkPaymentPending(ctx context.Context, req *orderwritev1.MarkPaymentPendingRequest) (*orderwritev1.MarkPaymentPendingResponse, error) {
 	_, err := s.svc.MarkPaymentPending(ctx, app.MarkPaymentPendingCommand{OrderID: req.GetOrderId(), PaymentIntentID: req.GetPaymentId(), CheckoutURL: req.GetCheckoutUrl(), OccurredAt: req.GetRequestedAt()})
