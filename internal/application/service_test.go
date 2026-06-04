@@ -36,6 +36,7 @@ type testOrders struct {
 	upserted       []*domain.Order
 	saveQuestions  []domain.SaveQuestionSnapshotsParams
 	saveReqAnswers []domain.SaveRequirementAnswersParams
+	requirements   *domain.OrderRequirements
 }
 
 func (r *testOrders) Create(_ context.Context, params domain.CreateOrderParams) (*domain.Order, error) {
@@ -99,6 +100,24 @@ func (r *testOrders) SaveBuyerInitialMessage(context.Context, domain.SaveBuyerIn
 	return nil, nil
 }
 
+func (r *testOrders) GetRequirementsByID(_ context.Context, orderID string) (*domain.OrderRequirements, error) {
+	if r.requirements != nil {
+		return r.requirements, nil
+	}
+	return &domain.OrderRequirements{
+		OrderID:  orderID,
+		BuyerID:  "buyer-1",
+		SellerID: "seller-1",
+		QuestionsAnswers: []domain.OrderRequirementQuestionAnswer{
+			{
+				Question: &domain.OrderRequirementQuestion{QuestionID: "question-1", Text: "Question?", Type: "text", Required: true, SortOrder: 1},
+				Answer:   &domain.OrderRequirementAnswer{Value: "Answer"},
+			},
+		},
+		CustomerMessage: &domain.OrderRequirementCustomerMessage{Message: "Hello", CreatedAt: time.Unix(10, 0).UTC(), UpdatedAt: time.Unix(20, 0).UTC()},
+	}, nil
+}
+
 func (r *testOrders) AttachFile(context.Context, domain.AttachFileParams) (*domain.Order, error) {
 	return nil, nil
 }
@@ -139,7 +158,10 @@ func (r *testOrders) MarkReleaseFailed(_ context.Context, orderID, reason string
 	return &domain.Order{OrderID: orderID, FailureReason: reason, Status: domain.OrderStatusReleaseFailed}, nil
 }
 
-type testRead struct{ orders []*domain.Order }
+type testRead struct {
+	orders       []*domain.Order
+	requirements *domain.OrderRequirements
+}
 
 func (r *testRead) Upsert(_ context.Context, order *domain.Order) error {
 	r.orders = append(r.orders, order)
@@ -159,6 +181,15 @@ func (r *testRead) GetPreviewByID(_ context.Context, orderID string) (*domain.Or
 		return &domain.OrderPreview{OrderID: last.OrderID, CreatedAt: last.CreatedAt, Status: last.Status}, nil
 	}
 	return &domain.OrderPreview{OrderID: orderID, CreatedAt: time.Now().UTC(), Status: domain.OrderStatusRequirementsPending}, nil
+}
+
+func (r *testRead) UpsertRequirements(context.Context, string, *domain.OrderRequirements) error { return nil }
+
+func (r *testRead) GetRequirementsByID(_ context.Context, orderID string) (*domain.OrderRequirements, error) {
+	if r.requirements != nil {
+		return r.requirements, nil
+	}
+	return &domain.OrderRequirements{OrderID: orderID, BuyerID: "buyer-1", SellerID: "seller-1"}, nil
 }
 
 type testLogger struct{}
@@ -415,5 +446,39 @@ func TestGetOrderPreviewByIDHydratesParticipants(t *testing.T) {
 	}
 	if got := len(read.orders); got != 2 {
 		t.Fatalf("orders tracked = %d, want 2", got)
+	}
+}
+
+func TestGetOrderRequirementsByIDReturnsSnapshot(t *testing.T) {
+	orders := &testOrders{snap: &domain.Order{
+		OrderID:  "order-1",
+		BuyerID:  "buyer-1",
+		SellerID: "seller-1",
+	}}
+	read := &testRead{orders: []*domain.Order{{OrderID: "order-1", BuyerID: "buyer-1", SellerID: "seller-1"}}}
+	read.requirements = &domain.OrderRequirements{
+		OrderID: "order-1",
+		BuyerID: "buyer-1",
+		SellerID: "seller-1",
+		QuestionsAnswers: []domain.OrderRequirementQuestionAnswer{{
+			Question: &domain.OrderRequirementQuestion{QuestionID: "question-1", Text: "Question?", Type: "text", Required: true, SortOrder: 1},
+			Answer:   &domain.OrderRequirementAnswer{Value: "Answer"},
+		}},
+		CustomerMessage: &domain.OrderRequirementCustomerMessage{Message: "Hello", CreatedAt: time.Unix(10, 0).UTC(), UpdatedAt: time.Unix(20, 0).UTC()},
+	}
+	svc, err := New(orders, read, &testFiles{}, &testUsers{}, &testBroker{}, Config{}, testLogger{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	res, err := svc.GetOrderRequirementsByID(context.Background(), GetOrderRequirementsByIDCommand{OrderID: "order-1", UserID: "buyer-1"})
+	if err != nil {
+		t.Fatalf("GetOrderRequirementsByID: %v", err)
+	}
+	if len(res.QuestionsAnswers) != 1 {
+		t.Fatalf("questions answers = %d, want 1", len(res.QuestionsAnswers))
+	}
+	if res.CustomerMessage == nil || res.CustomerMessage.Message != "Hello" {
+		t.Fatalf("customer message = %#v", res.CustomerMessage)
 	}
 }

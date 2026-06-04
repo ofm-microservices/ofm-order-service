@@ -15,6 +15,7 @@ type Service interface {
 	CreateDraftOrder(ctx context.Context, cmd CreateDraftOrderCommand) (*CreateDraftOrderResult, error)
 	GetOrderPaymentSnapshot(ctx context.Context, orderID string) (*OrderPaymentSnapshot, error)
 	GetOrderPreviewByID(ctx context.Context, cmd GetOrderPreviewByIDCommand) (*OrderPreviewResult, error)
+	GetOrderRequirementsByID(ctx context.Context, cmd GetOrderRequirementsByIDCommand) (*OrderRequirementsResult, error)
 	MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error)
 	MarkOrderFunded(ctx context.Context, cmd MarkOrderFundedCommand) (*MarkOrderFundedResult, error)
 	MarkPaymentFailed(ctx context.Context, cmd MarkPaymentFailedCommand) (*MarkPaymentFailedResult, error)
@@ -45,8 +46,9 @@ type Logger = logging.Logger
 
 // Config carries application-level subject names owned by order-service.
 type Config struct {
-	OrderCreateResultSubject      string
-	OrderPreviewProjectionSubject string
+	OrderCreateResultSubject        string
+	OrderPreviewProjectionSubject   string
+	OrderRequirementsProjectionSubject string
 }
 
 // FileServiceConfig carries the upstream file-service connection settings.
@@ -88,6 +90,13 @@ type GetOrderPreviewByIDCommand struct {
 	Role    string
 }
 
+// GetOrderRequirementsByIDCommand carries the authenticated user context for
+// the user-scoped order requirements lookup.
+type GetOrderRequirementsByIDCommand struct {
+	OrderID string
+	UserID  string
+}
+
 // OrderPreviewResult returns the minimal order preview payload.
 type OrderPreviewResult struct {
 	Order      *OrderPreview
@@ -123,6 +132,40 @@ type OrderPreviewUser struct {
 	Username    string
 	DisplayName string
 	AvatarURL   string
+}
+
+// OrderRequirementQuestion stores one requirements question snapshot.
+type OrderRequirementQuestion struct {
+	QuestionID string
+	Text       string
+	Type       string
+	Required   bool
+	SortOrder  int32
+}
+
+// OrderRequirementAnswer stores one optional buyer answer snapshot.
+type OrderRequirementAnswer struct {
+	Value string
+}
+
+// OrderRequirementQuestionAnswer stores a question and its optional answer.
+type OrderRequirementQuestionAnswer struct {
+	Question *OrderRequirementQuestion
+	Answer   *OrderRequirementAnswer
+}
+
+// OrderRequirementCustomerMessage stores the buyer message shown on the
+// requirements page.
+type OrderRequirementCustomerMessage struct {
+	Message   string
+	CreatedAt string
+	UpdatedAt string
+}
+
+// OrderRequirementsResult returns the public order requirements payload.
+type OrderRequirementsResult struct {
+	QuestionsAnswers []OrderRequirementQuestionAnswer
+	CustomerMessage  *OrderRequirementCustomerMessage
 }
 
 // CreateOrderCommand carries the immutable order snapshot from the saga.

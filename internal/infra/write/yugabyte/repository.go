@@ -3,6 +3,7 @@ package yugabyte
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -192,6 +193,28 @@ SELECT EXISTS (
 )
 `
 
+const getRequirementsSnapshotByIDQuery = `
+SELECT
+	o.order_id,
+	o.buyer_id,
+	o.seller_id,
+	q.question_id,
+	q.text,
+	q.type,
+	q.required,
+	q.sort_order,
+	a.answer_value,
+	m.message,
+	m.created_at,
+	m.updated_at
+FROM orders o
+LEFT JOIN order_question_snapshots q ON q.order_id = o.order_id
+LEFT JOIN order_requirement_answers a ON a.order_id = q.order_id AND a.question_id = q.question_id
+LEFT JOIN order_buyer_messages m ON m.order_id = o.order_id
+WHERE o.order_id = $1
+ORDER BY q.sort_order ASC, q.question_id ASC
+`
+
 const attachFileQuery = `
 INSERT INTO order_attachments (order_id, attachment_id, file_id, sort_order, created_at)
 VALUES ($1, $2, $3, $4, NOW())
@@ -336,6 +359,79 @@ func (r *repo) SaveBuyerInitialMessage(ctx context.Context, params domain.SaveBu
 		return nil, err
 	}
 	return r.GetByID(ctx, params.OrderID)
+}
+
+func (r *repo) GetRequirementsByID(ctx context.Context, orderID string) (*domain.OrderRequirements, error) {
+	rows, err := r.db.QueryContext(ctx, getRequirementsSnapshotByIDQuery, orderID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := &domain.OrderRequirements{
+		QuestionsAnswers: make([]domain.OrderRequirementQuestionAnswer, 0),
+	}
+	hasQuestion := false
+	seenMessage := false
+	for rows.Next() {
+		var (
+			rowOrderID  string
+			buyerID     string
+			sellerID    string
+			questionID  sql.NullString
+			text        sql.NullString
+			qType       sql.NullString
+			required    sql.NullBool
+			sortOrder   sql.NullInt32
+			answerValue sql.NullString
+			message     sql.NullString
+			createdAt   sql.NullTime
+			updatedAt   sql.NullTime
+		)
+		if err := rows.Scan(&rowOrderID, &buyerID, &sellerID, &questionID, &text, &qType, &required, &sortOrder, &answerValue, &message, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		out.OrderID = rowOrderID
+		out.BuyerID = buyerID
+		out.SellerID = sellerID
+		if questionID.Valid {
+			hasQuestion = true
+			qa := domain.OrderRequirementQuestionAnswer{
+				Question: &domain.OrderRequirementQuestion{
+					QuestionID: questionID.String,
+					Text:       text.String,
+					Type:       qType.String,
+					Required:   required.Bool,
+					SortOrder:  sortOrder.Int32,
+				},
+			}
+			if answerValue.Valid {
+				qa.Answer = &domain.OrderRequirementAnswer{Value: answerValue.String}
+			}
+			out.QuestionsAnswers = append(out.QuestionsAnswers, qa)
+		}
+		if !seenMessage && message.Valid && strings.TrimSpace(message.String) != "" {
+			out.CustomerMessage = &domain.OrderRequirementCustomerMessage{
+				Message:   message.String,
+				CreatedAt: createdAt.Time,
+				UpdatedAt: updatedAt.Time,
+			}
+			seenMessage = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out.OrderID) == "" {
+		return nil, domain.ErrOrderNotFound
+	}
+	if !hasQuestion && !seenMessage {
+		return nil, domain.ErrOrderNotFound
+	}
+	return out, nil
 }
 
 func (r *repo) AttachFile(ctx context.Context, params domain.AttachFileParams) (*domain.Order, error) {
