@@ -24,6 +24,7 @@ type Service interface {
 	AttachFile(ctx context.Context, cmd AttachFileCommand) (*AttachFileResult, error)
 	GetOrderLifecycleSnapshot(ctx context.Context, orderID string) (*OrderLifecycleSnapshot, error)
 	SaveDelivery(ctx context.Context, cmd SaveDeliveryCommand) (*SaveDeliveryResult, error)
+	BuildOrderDeliveryProjection(ctx context.Context, orderID string) (*OrderDeliveryProjection, error)
 	MarkReleasePending(ctx context.Context, cmd MarkReleasePendingCommand) (*MarkReleasePendingResult, error)
 	RequestRevision(ctx context.Context, cmd RequestRevisionCommand) (*RequestRevisionResult, error)
 	OpenDispute(ctx context.Context, cmd OpenDisputeCommand) (*OpenDisputeResult, error)
@@ -46,9 +47,10 @@ type Logger = logging.Logger
 
 // Config carries application-level subject names owned by order-service.
 type Config struct {
-	OrderCreateResultSubject        string
-	OrderPreviewProjectionSubject   string
+	OrderCreateResultSubject           string
+	OrderPreviewProjectionSubject      string
 	OrderRequirementsProjectionSubject string
+	OrderDeliveryProjectionSubject     string
 }
 
 // FileServiceConfig carries the upstream file-service connection settings.
@@ -166,6 +168,36 @@ type OrderRequirementCustomerMessage struct {
 type OrderRequirementsResult struct {
 	QuestionsAnswers []OrderRequirementQuestionAnswer
 	CustomerMessage  *OrderRequirementCustomerMessage
+}
+
+// OrderDeliveryProjection returns the public delivery payload projected into Redis.
+type OrderDeliveryProjection struct {
+	OrderDelivery      *OrderDelivery
+	OrderDeliveryFiles []OrderDeliveryFile
+}
+
+// OrderDelivery stores one seller delivery snapshot in the application layer.
+type OrderDelivery struct {
+	DeliveryMessage string
+	CreatedAt       string
+}
+
+// OrderDeliveryFile stores one delivery attachment snapshot in the application layer.
+type OrderDeliveryFile struct {
+	FileID    string
+	FileURL   string
+	SortOrder int32
+	CreatedAt string
+}
+
+// OrderDeliveryProjectionRequest carries the delivery refresh hint published
+// after the canonical delivery write commits.
+type OrderDeliveryProjectionRequest struct {
+	OrderID         string   `json:"order_id"`
+	SellerID        string   `json:"seller_id"`
+	DeliveryMessage string   `json:"delivery_message"`
+	AttachmentIDs   []string `json:"attachment_ids"`
+	OccurredAt      string   `json:"occurred_at"`
 }
 
 // CreateOrderCommand carries the immutable order snapshot from the saga.

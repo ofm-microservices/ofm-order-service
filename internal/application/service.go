@@ -23,6 +23,7 @@ type service struct {
 	resultSubject       string
 	previewSubject      string
 	requirementsSubject string
+	deliverySubject     string
 	log                 Logger
 }
 
@@ -58,6 +59,10 @@ func New(orders OrderRepository, read OrderReadRepository, files FileService, us
 	if requirementsSubject == "" {
 		requirementsSubject = "order.projection.requirements"
 	}
+	deliverySubject := strings.TrimSpace(cfg.OrderDeliveryProjectionSubject)
+	if deliverySubject == "" {
+		deliverySubject = "order.projection.delivery"
+	}
 	return &service{
 		orders:              orders,
 		read:                read,
@@ -67,6 +72,7 @@ func New(orders OrderRepository, read OrderReadRepository, files FileService, us
 		resultSubject:       resultSubject,
 		previewSubject:      previewSubject,
 		requirementsSubject: requirementsSubject,
+		deliverySubject:     deliverySubject,
 		log:                 log.With(logging.String("module", "application")),
 	}, nil
 }
@@ -420,9 +426,41 @@ func (s *service) SaveDelivery(ctx context.Context, cmd SaveDeliveryCommand) (*S
 		return nil, err
 	}
 	if err := s.refreshOrderProjection(ctx, order); err != nil {
-		return nil, err
+		s.log.Error("refresh order preview after delivery failed",
+			logging.Operation("order.delivery.refresh_preview"),
+			logging.String("order_id", order.OrderID),
+			logging.Err(err),
+		)
+	}
+	if err := s.refreshOrderDeliveryProjection(ctx, order.OrderID); err != nil {
+		s.log.Error("refresh order delivery cache failed",
+			logging.Operation("order.delivery.refresh"),
+			logging.String("order_id", order.OrderID),
+			logging.Err(err),
+		)
+	}
+	if err := s.publishOrderDeliveryProjection(ctx, &OrderDeliveryProjectionRequest{
+		OrderID:         order.OrderID,
+		SellerID:        cmd.SellerID,
+		DeliveryMessage: cmd.Message,
+		AttachmentIDs:   append([]string(nil), cmd.AttachmentIDs...),
+		OccurredAt:      parseTimeOrNow(cmd.RequestedAt).UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		s.log.Error("publish order delivery projection failed",
+			logging.Operation("order.delivery.publish"),
+			logging.String("order_id", order.OrderID),
+			logging.Err(err),
+		)
 	}
 	return &SaveDeliveryResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) BuildOrderDeliveryProjection(ctx context.Context, orderID string) (*OrderDeliveryProjection, error) {
+	projection, err := s.orders.GetDeliveryByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return s.toOrderDeliveryProjection(ctx, projection)
 }
 
 func (s *service) MarkReleasePending(ctx context.Context, cmd MarkReleasePendingCommand) (*MarkReleasePendingResult, error) {
@@ -556,6 +594,107 @@ func (s *service) refreshOrderRequirementsProjection(ctx context.Context, reqs *
 		)
 	}
 	return nil
+}
+
+func (s *service) refreshOrderDeliveryProjection(ctx context.Context, orderID string) error {
+	projection, err := s.BuildOrderDeliveryProjection(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if projection == nil {
+		return nil
+	}
+	domainProjection := toDomainOrderDeliveryProjection(orderID, projection)
+	if err := s.read.UpsertDelivery(ctx, orderID, domainProjection); err != nil {
+		s.log.Error("order delivery cache upsert failed",
+			logging.Operation("order.delivery.refresh"),
+			logging.String("order_id", orderID),
+			logging.Err(err),
+		)
+		return err
+	}
+	return nil
+}
+
+func (s *service) publishOrderDeliveryProjection(ctx context.Context, req *OrderDeliveryProjectionRequest) error {
+	if req == nil {
+		return nil
+	}
+	if strings.TrimSpace(s.deliverySubject) == "" || s.broker == nil {
+		return nil
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if err := s.broker.Publish(ctx, s.deliverySubject, payload); err != nil {
+		return fmt.Errorf("%w: %v", ErrPublishResult, err)
+	}
+	return nil
+}
+
+func (s *service) toOrderDeliveryProjection(ctx context.Context, projection *domain.OrderDeliveryProjection) (*OrderDeliveryProjection, error) {
+	if projection == nil || projection.Delivery == nil {
+		return nil, nil
+	}
+	out := &OrderDeliveryProjection{
+		OrderDelivery: &OrderDelivery{
+			DeliveryMessage: strings.TrimSpace(projection.Delivery.DeliveryMessage),
+			CreatedAt:       projection.Delivery.CreatedAt.UTC().Format(time.RFC3339Nano),
+		},
+		OrderDeliveryFiles: make([]OrderDeliveryFile, 0, len(projection.DeliveryFiles)),
+	}
+	for _, file := range projection.DeliveryFiles {
+		fileURL := ""
+		if s.files != nil {
+			url, err := s.files.GetFileURL(ctx, file.FileID)
+			if err != nil {
+				s.log.Error("resolve delivery file url failed",
+					logging.Operation("order.delivery.resolve_file_url"),
+					logging.String("order_id", projection.OrderID),
+					logging.String("file_id", file.FileID),
+					logging.Err(err),
+				)
+			} else {
+				fileURL = strings.TrimSpace(url)
+			}
+		}
+		out.OrderDeliveryFiles = append(out.OrderDeliveryFiles, OrderDeliveryFile{
+			FileID:    strings.TrimSpace(file.FileID),
+			FileURL:   fileURL,
+			SortOrder: file.SortOrder,
+			CreatedAt: file.CreatedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return out, nil
+}
+
+func toDomainOrderDeliveryProjection(orderID string, projection *OrderDeliveryProjection) *domain.OrderDeliveryProjection {
+	if projection == nil || projection.OrderDelivery == nil {
+		return nil
+	}
+	out := &domain.OrderDeliveryProjection{
+		OrderID: orderID,
+		Delivery: &domain.OrderDelivery{
+			OrderID:         orderID,
+			DeliveryMessage: strings.TrimSpace(projection.OrderDelivery.DeliveryMessage),
+		},
+		DeliveryFiles: make([]domain.OrderDeliveryFile, 0, len(projection.OrderDeliveryFiles)),
+	}
+	if createdAt, err := time.Parse(time.RFC3339Nano, projection.OrderDelivery.CreatedAt); err == nil {
+		out.Delivery.CreatedAt = createdAt
+	}
+	for _, file := range projection.OrderDeliveryFiles {
+		createdAt, _ := time.Parse(time.RFC3339Nano, file.CreatedAt)
+		out.DeliveryFiles = append(out.DeliveryFiles, domain.OrderDeliveryFile{
+			OrderID:   orderID,
+			FileID:    strings.TrimSpace(file.FileID),
+			FileURL:   strings.TrimSpace(file.FileURL),
+			SortOrder: file.SortOrder,
+			CreatedAt: createdAt,
+		})
+	}
+	return out
 }
 
 func (s *service) hydratePictureURL(ctx context.Context, order *domain.Order) error {

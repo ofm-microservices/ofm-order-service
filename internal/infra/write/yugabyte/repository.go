@@ -120,6 +120,33 @@ SET status = $2, delivered_at = NOW(), updated_at = NOW()
 WHERE order_id = $1
 RETURNING ` + orderColumns
 
+const getOrderDeliveryQuery = `
+SELECT order_id, seller_id, delivery_message, created_at
+FROM order_deliveries
+WHERE order_id = $1
+`
+
+const getOrderDeliveryFilesQuery = `
+SELECT order_id, file_id, sort_order, created_at
+FROM order_delivery_files
+WHERE order_id = $1
+ORDER BY sort_order ASC, file_id ASC
+`
+
+const upsertOrderDeliveryQuery = `
+INSERT INTO order_deliveries (order_id, seller_id, delivery_message, created_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (order_id) DO UPDATE SET
+    seller_id = EXCLUDED.seller_id,
+    delivery_message = EXCLUDED.delivery_message
+`
+
+const insertDeliveryFileQuery = `
+INSERT INTO order_delivery_files (order_id, file_id, sort_order, created_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (order_id, file_id) DO UPDATE SET sort_order = EXCLUDED.sort_order
+`
+
 const markReleasePendingQuery = `
 UPDATE orders
 SET status = $2, payment_release_id = NULLIF($3, '')::uuid, updated_at = NOW()
@@ -457,13 +484,79 @@ func (r *repo) GetLifecycleSnapshot(ctx context.Context, orderID string) (*domai
 }
 
 func (r *repo) SaveDelivery(ctx context.Context, params domain.SaveDeliveryParams) (*domain.Order, error) {
-	if _, err := scanOrder(r.db.QueryRowContext(ctx, saveDeliveryQuery, params.OrderID, domain.OrderStatusDelivered)); err != nil {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := scanOrder(tx.QueryRowContext(ctx, saveDeliveryQuery, params.OrderID, domain.OrderStatusDelivered)); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, domain.ErrOrderNotFound
 		}
 		return nil, err
 	}
+	if _, err := tx.ExecContext(ctx, upsertOrderDeliveryQuery, params.OrderID, params.SellerID, params.Message); err != nil {
+		return nil, err
+	}
+	for i, attachmentID := range params.AttachmentIDs {
+		if strings.TrimSpace(attachmentID) == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, insertDeliveryFileQuery, params.OrderID, attachmentID, i+1); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return r.GetByID(ctx, params.OrderID)
+}
+
+func (r *repo) GetDeliveryByID(ctx context.Context, orderID string) (*domain.OrderDeliveryProjection, error) {
+	var delivery model.OrderDeliveryRow
+	if err := r.db.QueryRowContext(ctx, getOrderDeliveryQuery, orderID).Scan(
+		&delivery.OrderID,
+		&delivery.SellerID,
+		&delivery.DeliveryMessage,
+		&delivery.CreatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	rows, err := r.db.QueryContext(ctx, getOrderDeliveryFilesQuery, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := &domain.OrderDeliveryProjection{
+		OrderID: orderID,
+		Delivery: &domain.OrderDelivery{
+			OrderID:         delivery.OrderID,
+			SellerID:        delivery.SellerID,
+			DeliveryMessage: delivery.DeliveryMessage,
+			CreatedAt:       delivery.CreatedAt,
+		},
+		DeliveryFiles: make([]domain.OrderDeliveryFile, 0),
+	}
+	for rows.Next() {
+		var file model.OrderDeliveryFileRow
+		if err := rows.Scan(&file.OrderID, &file.FileID, &file.SortOrder, &file.CreatedAt); err != nil {
+			return nil, err
+		}
+		out.DeliveryFiles = append(out.DeliveryFiles, domain.OrderDeliveryFile{
+			OrderID:   file.OrderID,
+			FileID:    file.FileID,
+			SortOrder: file.SortOrder,
+			CreatedAt: file.CreatedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *repo) MarkReleasePending(ctx context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {

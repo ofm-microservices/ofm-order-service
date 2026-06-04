@@ -79,6 +79,9 @@ func (s *commandService) GetOrderLifecycleSnapshot(context.Context, string) (*ap
 func (s *commandService) SaveDelivery(context.Context, app.SaveDeliveryCommand) (*app.SaveDeliveryResult, error) {
 	return nil, nil
 }
+func (s *commandService) BuildOrderDeliveryProjection(context.Context, string) (*app.OrderDeliveryProjection, error) {
+	return nil, nil
+}
 func (s *commandService) MarkReleasePending(context.Context, app.MarkReleasePendingCommand) (*app.MarkReleasePendingResult, error) {
 	return nil, nil
 }

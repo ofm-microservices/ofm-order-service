@@ -7,6 +7,7 @@ import (
 
 var (
 	ErrNilEventBroker         = errors.New("event broker is nil")
+	ErrNilOrderService        = errors.New("order service is nil")
 	ErrNilOrderReadRepository = errors.New("order read repository is nil")
 	ErrNilLogger              = errors.New("logger is nil")
 )

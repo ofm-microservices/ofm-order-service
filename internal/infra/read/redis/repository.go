@@ -36,6 +36,9 @@ func OrderKey(orderID string) string { return fmt.Sprintf("order:%s", orderID) }
 // RequirementsKey builds the Redis key used for order requirements projections.
 func RequirementsKey(orderID string) string { return fmt.Sprintf("requirements:%s", orderID) }
 
+// DeliveryKey builds the Redis key used for order delivery projections.
+func DeliveryKey(orderID string) string { return fmt.Sprintf("order_delivery:%s", orderID) }
+
 func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 	started := time.Now()
 	status := "success"
@@ -71,6 +74,26 @@ func (r *repo) UpsertRequirements(ctx context.Context, orderID string, requireme
 	if err := r.rdb.Set(ctx, RequirementsKey(orderID), payload, 0).Err(); err != nil {
 		status = "error"
 		r.log.Error("upsert requirements cache failed", logging.Operation("redis.requirements.upsert"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return err
+	}
+	return nil
+}
+
+func (r *repo) UpsertDelivery(ctx context.Context, orderID string, delivery *domain.OrderDeliveryProjection) error {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("set", "delivery", status, time.Since(started)) }()
+	if delivery == nil {
+		return ErrNilOrder
+	}
+	cache := mapDeliveryToCache(delivery)
+	payload, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	if err := r.rdb.Set(ctx, DeliveryKey(orderID), payload, 0).Err(); err != nil {
+		status = "error"
+		r.log.Error("upsert delivery cache failed", logging.Operation("redis.delivery.upsert"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
 		return err
 	}
 	return nil
