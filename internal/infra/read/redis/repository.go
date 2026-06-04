@@ -33,6 +33,9 @@ func New(rdb *redis.Client, log logging.Logger) (domain.OrderReadRepository, err
 // OrderKey builds the Redis key used for order projections.
 func OrderKey(orderID string) string { return fmt.Sprintf("order:%s", orderID) }
 
+// RequirementsKey builds the Redis key used for order requirements projections.
+func RequirementsKey(orderID string) string { return fmt.Sprintf("requirements:%s", orderID) }
+
 func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 	started := time.Now()
 	status := "success"
@@ -48,6 +51,26 @@ func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 	if err := r.rdb.Set(ctx, OrderKey(order.OrderID), payload, 0).Err(); err != nil {
 		status = "error"
 		r.log.Error("upsert order cache failed", logging.Operation("redis.order.upsert"), logging.DurationMS(time.Since(started)), logging.Err(err))
+		return err
+	}
+	return nil
+}
+
+func (r *repo) UpsertRequirements(ctx context.Context, orderID string, requirements *domain.OrderRequirements) error {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("set", "requirements", status, time.Since(started)) }()
+	if requirements == nil {
+		return ErrNilOrder
+	}
+	cache := mapRequirementsToCache(requirements)
+	payload, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	if err := r.rdb.Set(ctx, RequirementsKey(orderID), payload, 0).Err(); err != nil {
+		status = "error"
+		r.log.Error("upsert requirements cache failed", logging.Operation("redis.requirements.upsert"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
 		return err
 	}
 	return nil
@@ -131,4 +154,27 @@ func (r *repo) GetPreviewByID(ctx context.Context, orderID string) (*domain.Orde
 		CreatedAt: parseTimeOrZero(cache.Order.CreatedAt),
 		Status:    cache.Order.Status,
 	}, nil
+}
+
+func (r *repo) GetRequirementsByID(ctx context.Context, orderID string) (*domain.OrderRequirements, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "requirements", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, RequirementsKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get requirements cache failed", logging.Operation("redis.requirements.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.RequirementsCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		status = "error"
+		r.log.Error("unmarshal requirements cache failed", logging.Operation("redis.requirements.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	return mapRequirementsCacheToDomain(orderID, cache), nil
 }

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,14 +15,15 @@ import (
 )
 
 type service struct {
-	orders         OrderRepository
-	read           OrderReadRepository
-	files          FileService
-	users          UserService
-	broker         EventBroker
-	resultSubject  string
-	previewSubject string
-	log            Logger
+	orders              OrderRepository
+	read                OrderReadRepository
+	files               FileService
+	users               UserService
+	broker              EventBroker
+	resultSubject       string
+	previewSubject      string
+	requirementsSubject string
+	log                 Logger
 }
 
 // New constructs the order application service.
@@ -52,15 +54,20 @@ func New(orders OrderRepository, read OrderReadRepository, files FileService, us
 	if previewSubject == "" {
 		previewSubject = "order.projection.preview"
 	}
+	requirementsSubject := strings.TrimSpace(cfg.OrderRequirementsProjectionSubject)
+	if requirementsSubject == "" {
+		requirementsSubject = "order.projection.requirements"
+	}
 	return &service{
-		orders:         orders,
-		read:           read,
-		files:          files,
-		users:          users,
-		broker:         broker,
-		resultSubject:  resultSubject,
-		previewSubject: previewSubject,
-		log:            log.With(logging.String("module", "application")),
+		orders:              orders,
+		read:                read,
+		files:               files,
+		users:               users,
+		broker:              broker,
+		resultSubject:       resultSubject,
+		previewSubject:      previewSubject,
+		requirementsSubject: requirementsSubject,
+		log:                 log.With(logging.String("module", "application")),
 	}, nil
 }
 
@@ -149,6 +156,13 @@ func (s *service) CreateDraftOrder(ctx context.Context, cmd CreateDraftOrderComm
 	if err := s.refreshOrderProjection(ctx, order); err != nil {
 		return nil, err
 	}
+	reqs, err := s.orders.GetRequirementsByID(ctx, order.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.refreshOrderRequirementsProjection(ctx, reqs); err != nil {
+		return nil, err
+	}
 	return &CreateDraftOrderResult{OrderID: order.OrderID, Status: order.Status}, nil
 }
 
@@ -234,6 +248,45 @@ func (s *service) GetOrderPreviewByID(ctx context.Context, cmd GetOrderPreviewBy
 	}, nil
 }
 
+func (s *service) GetOrderRequirementsByID(ctx context.Context, cmd GetOrderRequirementsByIDCommand) (*OrderRequirementsResult, error) {
+	orderID := strings.TrimSpace(cmd.OrderID)
+	userID := strings.TrimSpace(cmd.UserID)
+	if orderID == "" || userID == "" {
+		return nil, domain.ErrOrderNotFound
+	}
+
+	if _, err := s.GetOrderPreviewByID(ctx, GetOrderPreviewByIDCommand{
+		OrderID: orderID,
+		UserID:  userID,
+		Role:    "buyer",
+	}); err != nil && !errors.Is(err, domain.ErrOrderNotFound) {
+		s.log.Warn("order preview access check failed, continuing with requirements lookup",
+			logging.Operation("order.requirements.preview_access_check"),
+			logging.String("order_id", orderID),
+			logging.String("user_id", userID),
+			logging.Err(err),
+		)
+	} else if err != nil {
+		order, orderErr := s.orders.GetByID(ctx, orderID)
+		if orderErr != nil || order == nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, domain.ErrOrderNotOwned
+	}
+
+	reqs, err := s.read.GetRequirementsByID(ctx, orderID)
+	if err != nil || reqs == nil {
+		reqs, err = s.orders.GetRequirementsByID(ctx, orderID)
+		if err != nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		if err := s.refreshOrderRequirementsProjection(ctx, reqs); err != nil {
+			return nil, err
+		}
+	}
+	return toOrderRequirementsResult(reqs), nil
+}
+
 func (s *service) MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error) {
 	if err := s.orders.SaveCheckoutSession(ctx, cmd.OrderID, cmd.PaymentIntentID, cmd.CheckoutURL); err != nil {
 		return nil, err
@@ -286,6 +339,13 @@ func (s *service) SaveRequirementAnswers(ctx context.Context, cmd SaveRequiremen
 	if err := s.refreshOrderProjection(ctx, order); err != nil {
 		return nil, err
 	}
+	reqs, err := s.orders.GetRequirementsByID(ctx, cmd.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.refreshOrderRequirementsProjection(ctx, reqs); err != nil {
+		return nil, err
+	}
 	return &SaveRequirementAnswersResult{OrderID: order.OrderID, Status: order.Status}, nil
 }
 
@@ -295,6 +355,13 @@ func (s *service) SaveBuyerInitialMessage(ctx context.Context, cmd SaveBuyerInit
 		return nil, err
 	}
 	if err := s.refreshOrderProjection(ctx, order); err != nil {
+		return nil, err
+	}
+	reqs, err := s.orders.GetRequirementsByID(ctx, cmd.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.refreshOrderRequirementsProjection(ctx, reqs); err != nil {
 		return nil, err
 	}
 	return &SaveBuyerInitialMessageResult{OrderID: order.OrderID, Status: order.Status}, nil
@@ -470,6 +537,27 @@ func (s *service) refreshOrderProjection(ctx context.Context, order *domain.Orde
 	return nil
 }
 
+func (s *service) refreshOrderRequirementsProjection(ctx context.Context, reqs *domain.OrderRequirements) error {
+	if reqs == nil {
+		return nil
+	}
+	if err := s.read.UpsertRequirements(ctx, reqs.OrderID, reqs); err != nil {
+		s.log.Error("order requirements cache upsert failed",
+			logging.Operation("order.requirements.refresh"),
+			logging.String("order_id", reqs.OrderID),
+			logging.Err(err),
+		)
+	}
+	if err := s.publishOrderRequirementsProjection(ctx, reqs); err != nil {
+		s.log.Error("order requirements projection publish failed",
+			logging.Operation("order.requirements.refresh"),
+			logging.String("order_id", reqs.OrderID),
+			logging.Err(err),
+		)
+	}
+	return nil
+}
+
 func (s *service) hydratePictureURL(ctx context.Context, order *domain.Order) error {
 	if s == nil || order == nil {
 		return nil
@@ -536,6 +624,23 @@ func (s *service) publishOrderPreviewProjection(ctx context.Context, order *doma
 	return nil
 }
 
+func (s *service) publishOrderRequirementsProjection(ctx context.Context, reqs *domain.OrderRequirements) error {
+	if reqs == nil {
+		return nil
+	}
+	if strings.TrimSpace(s.requirementsSubject) == "" || s.broker == nil {
+		return nil
+	}
+	payload, err := json.Marshal(reqs)
+	if err != nil {
+		return err
+	}
+	if err := s.broker.Publish(ctx, s.requirementsSubject, payload); err != nil {
+		return fmt.Errorf("%w: %v", ErrPublishResult, err)
+	}
+	return nil
+}
+
 func toDomainPreviewUser(user *UserPreview) *domain.OrderPreviewUser {
 	if user == nil {
 		return nil
@@ -558,6 +663,49 @@ func toPreviewUser(user *domain.OrderPreviewUser) *OrderPreviewUser {
 		DisplayName: strings.TrimSpace(user.DisplayName),
 		AvatarURL:   strings.TrimSpace(user.AvatarURL),
 	}
+}
+
+func toOrderRequirementsResult(reqs *domain.OrderRequirements) *OrderRequirementsResult {
+	if reqs == nil {
+		return &OrderRequirementsResult{}
+	}
+	out := &OrderRequirementsResult{
+		QuestionsAnswers: make([]OrderRequirementQuestionAnswer, 0, len(reqs.QuestionsAnswers)),
+	}
+	for _, qa := range reqs.QuestionsAnswers {
+		out.QuestionsAnswers = append(out.QuestionsAnswers, OrderRequirementQuestionAnswer{
+			Question: toOrderRequirementQuestion(qa.Question),
+			Answer:   toOrderRequirementAnswer(qa.Answer),
+		})
+	}
+	if reqs.CustomerMessage != nil {
+		out.CustomerMessage = &OrderRequirementCustomerMessage{
+			Message:   strings.TrimSpace(reqs.CustomerMessage.Message),
+			CreatedAt: reqs.CustomerMessage.CreatedAt.UTC().Format(time.RFC3339Nano),
+			UpdatedAt: reqs.CustomerMessage.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		}
+	}
+	return out
+}
+
+func toOrderRequirementQuestion(q *domain.OrderRequirementQuestion) *OrderRequirementQuestion {
+	if q == nil {
+		return nil
+	}
+	return &OrderRequirementQuestion{
+		QuestionID: strings.TrimSpace(q.QuestionID),
+		Text:       strings.TrimSpace(q.Text),
+		Type:       strings.TrimSpace(q.Type),
+		Required:   q.Required,
+		SortOrder:  q.SortOrder,
+	}
+}
+
+func toOrderRequirementAnswer(a *domain.OrderRequirementAnswer) *OrderRequirementAnswer {
+	if a == nil {
+		return nil
+	}
+	return &OrderRequirementAnswer{Value: strings.TrimSpace(a.Value)}
 }
 
 func parseTimeOrNow(value string) time.Time {

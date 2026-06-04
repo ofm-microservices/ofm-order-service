@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
 	"github.com/ofm-microservices/ofm-common/pkg/observability/metrics"
@@ -150,6 +151,9 @@ func (s *server) GetOrderPreviewByID(ctx context.Context, req *orderwritev1.GetO
 		if errors.Is(err, domain.ErrOrderNotFound) {
 			return nil, status.Error(codes.NotFound, domain.ErrOrderNotFound.Error())
 		}
+		if errors.Is(err, domain.ErrOrderNotOwned) {
+			return nil, status.Error(codes.PermissionDenied, domain.ErrOrderNotOwned.Error())
+		}
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
 	resp := &orderwritev1.GetOrderPreviewByIDResponse{}
@@ -188,6 +192,39 @@ func (s *server) GetOrderPreviewByID(ctx context.Context, req *orderwritev1.GetO
 			Username:    res.Freelancer.Username,
 			DisplayName: res.Freelancer.DisplayName,
 			AvatarUrl:   res.Freelancer.AvatarURL,
+		}
+	}
+	return resp, nil
+}
+
+func (s *server) GetOrderRequirementsByID(ctx context.Context, req *orderwritev1.GetOrderRequirementsByIDRequest) (*orderwritev1.GetOrderRequirementsByIDResponse, error) {
+	if strings.TrimSpace(req.GetOrderId()) == "" || strings.TrimSpace(req.GetUserId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid order requirements request")
+	}
+	res, err := s.svc.GetOrderRequirementsByID(ctx, app.GetOrderRequirementsByIDCommand{
+		OrderID: req.GetOrderId(),
+		UserID:  req.GetUserId(),
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			return nil, status.Error(codes.NotFound, domain.ErrOrderNotFound.Error())
+		}
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	resp := &orderwritev1.GetOrderRequirementsByIDResponse{
+		QuestionsAnswers: make([]*orderwritev1.OrderRequirementQuestionAnswer, 0, len(res.QuestionsAnswers)),
+	}
+	for _, qa := range res.QuestionsAnswers {
+		resp.QuestionsAnswers = append(resp.QuestionsAnswers, &orderwritev1.OrderRequirementQuestionAnswer{
+			Question: toRequirementQuestionProto(qa.Question),
+			Answer:   toRequirementAnswerProto(qa.Answer),
+		})
+	}
+	if res.CustomerMessage != nil {
+		resp.CustomerMessage = &orderwritev1.OrderRequirementCustomerMessage{
+			Message:   res.CustomerMessage.Message,
+			CreatedAt: res.CustomerMessage.CreatedAt,
+			UpdatedAt: res.CustomerMessage.UpdatedAt,
 		}
 	}
 	return resp, nil
@@ -241,6 +278,26 @@ func (s *server) GetOrderLifecycleSnapshot(ctx context.Context, req *orderwritev
 		CompletedAt:                snap.CompletedAt,
 		DisputedAt:                 snap.DisputedAt,
 	}}, nil
+}
+
+func toRequirementQuestionProto(q *app.OrderRequirementQuestion) *orderwritev1.OrderRequirementQuestion {
+	if q == nil {
+		return nil
+	}
+	return &orderwritev1.OrderRequirementQuestion{
+		QuestionId: q.QuestionID,
+		Text:       q.Text,
+		Type:       q.Type,
+		Required:   q.Required,
+		SortOrder:  q.SortOrder,
+	}
+}
+
+func toRequirementAnswerProto(a *app.OrderRequirementAnswer) *orderwritev1.OrderRequirementAnswer {
+	if a == nil {
+		return nil
+	}
+	return &orderwritev1.OrderRequirementAnswer{Value: a.Value}
 }
 
 func (s *server) SaveDelivery(ctx context.Context, req *orderwritev1.SaveDeliveryRequest) (*orderwritev1.SaveDeliveryResponse, error) {

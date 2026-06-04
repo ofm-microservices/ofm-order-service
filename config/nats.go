@@ -13,12 +13,14 @@ type NATSConfig struct {
 	OrderCreateSubject            string `env:"NATS_SUBJECT_ORDER_CREATE" envDefault:"order.create"`
 	OrderCreateResultSubject      string `env:"NATS_SUBJECT_ORDER_CREATE_RESULT" envDefault:"order.create.result"`
 	OrderPreviewProjectionSubject string `env:"NATS_SUBJECT_ORDER_PREVIEW_PROJECTION_REQUESTED" envDefault:"order.projection.preview"`
+	OrderRequirementsProjectionSubject string `env:"NATS_SUBJECT_ORDER_REQUIREMENTS_PROJECTION_REQUESTED" envDefault:"order.projection.requirements"`
 	OrderConfirmSubject           string `env:"NATS_SUBJECT_ORDER_CONFIRM" envDefault:"order.confirm"`
 	OrderFailSubject              string `env:"NATS_SUBJECT_ORDER_FAIL" envDefault:"order.fail"`
 	OrderReleaseRequestSubject    string `env:"NATS_SUBJECT_ORDER_RELEASE_REQUEST" envDefault:"order.release.request"`
 
 	OrderCreateDurable            string `env:"NATS_DURABLE_ORDER_CREATE" envDefault:"order_service_create"`
 	OrderPreviewProjectionDurable string `env:"NATS_DURABLE_ORDER_PREVIEW_PROJECTION" envDefault:"order_service_preview_projection"`
+	OrderRequirementsProjectionDurable string `env:"NATS_DURABLE_ORDER_REQUIREMENTS_PROJECTION" envDefault:"order_service_requirements_projection"`
 	OrderConfirmDurable           string `env:"NATS_DURABLE_ORDER_CONFIRM" envDefault:"order_service_confirm"`
 	OrderFailDurable              string `env:"NATS_DURABLE_ORDER_FAIL" envDefault:"order_service_fail"`
 }

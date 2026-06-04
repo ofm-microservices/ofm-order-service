@@ -16,7 +16,8 @@ var ServiceModule = fx.Options(fx.Provide(ProvideOrderService))
 // ProvideOrderService constructs the order application service.
 func ProvideOrderService(writeRepo domain.OrderRepository, readRepo domain.OrderReadRepository, files filegrpc.FileService, users usergrpc.UserService, broker application.EventBroker, cfg *config.Config, lg logging.Logger) (application.Service, error) {
 	return application.New(writeRepo, readRepo, files, users, broker, application.Config{
-		OrderCreateResultSubject:      cfg.NATS.OrderCreateResultSubject,
-		OrderPreviewProjectionSubject: cfg.NATS.OrderPreviewProjectionSubject,
+		OrderCreateResultSubject:        cfg.NATS.OrderCreateResultSubject,
+		OrderPreviewProjectionSubject:   cfg.NATS.OrderPreviewProjectionSubject,
+		OrderRequirementsProjectionSubject: cfg.NATS.OrderRequirementsProjectionSubject,
 	}, lg)
 }

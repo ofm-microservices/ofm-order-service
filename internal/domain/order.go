@@ -58,6 +58,46 @@ type Order struct {
 	UpdatedAt             time.Time
 }
 
+// OrderRequirementQuestion stores one immutable question snapshot for the
+// requirements page.
+type OrderRequirementQuestion struct {
+	QuestionID string
+	Text       string
+	Type       string
+	Required   bool
+	SortOrder  int32
+}
+
+// OrderRequirementAnswer stores one buyer answer snapshot for the
+// requirements page.
+type OrderRequirementAnswer struct {
+	Value string
+}
+
+// OrderRequirementQuestionAnswer stores one question and its optional answer
+// on the requirements page.
+type OrderRequirementQuestionAnswer struct {
+	Question *OrderRequirementQuestion
+	Answer   *OrderRequirementAnswer
+}
+
+// OrderRequirementCustomerMessage stores the buyer message shown on the
+// requirements page.
+type OrderRequirementCustomerMessage struct {
+	Message   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// OrderRequirements stores the immutable requirements page projection.
+type OrderRequirements struct {
+	OrderID         string
+	BuyerID         string
+	SellerID        string
+	QuestionsAnswers []OrderRequirementQuestionAnswer
+	CustomerMessage *OrderRequirementCustomerMessage
+}
+
 // CreateOrderParams carries the snapshot used to create an order.
 type CreateOrderParams struct {
 	OrderID             string
@@ -132,6 +172,7 @@ type OrderRepository interface {
 	MarkFailed(ctx context.Context, orderID, reason string) (*Order, error)
 	SaveRequirementAnswers(ctx context.Context, params SaveRequirementAnswersParams) (*Order, error)
 	SaveBuyerInitialMessage(ctx context.Context, params SaveBuyerInitialMessageParams) (*Order, error)
+	GetRequirementsByID(ctx context.Context, orderID string) (*OrderRequirements, error)
 	AttachFile(ctx context.Context, params AttachFileParams) (*Order, error)
 	SaveCheckoutSession(ctx context.Context, orderID, paymentIntentID, checkoutURL string) error
 	GetLifecycleSnapshot(ctx context.Context, orderID string) (*Order, error)
@@ -189,6 +230,8 @@ type OrderReadRepository interface {
 	Upsert(ctx context.Context, order *Order) error
 	GetByID(ctx context.Context, orderID string) (*Order, error)
 	GetPreviewByID(ctx context.Context, orderID string) (*OrderPreview, error)
+	UpsertRequirements(ctx context.Context, orderID string, requirements *OrderRequirements) error
+	GetRequirementsByID(ctx context.Context, orderID string) (*OrderRequirements, error)
 }
 
 // OrderPreviewUser stores a user snapshot projected into an order page.
