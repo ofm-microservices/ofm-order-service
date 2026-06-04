@@ -99,6 +99,32 @@ func (r *repo) UpsertDelivery(ctx context.Context, orderID string, delivery *dom
 	return nil
 }
 
+func (r *repo) GetDeliveryByID(ctx context.Context, orderID string) (*domain.OrderDeliveryProjection, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "delivery", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, DeliveryKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get delivery cache failed", logging.Operation("redis.delivery.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.DeliveryCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		status = "error"
+		r.log.Error("unmarshal delivery cache failed", logging.Operation("redis.delivery.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	if strings.TrimSpace(cache.OrderDelivery.DeliveryMessage) == "" && strings.TrimSpace(cache.OrderDelivery.CreatedAt) == "" && len(cache.OrderDeliveryFiles) == 0 {
+		return nil, domain.ErrOrderNotFound
+	}
+	return mapDeliveryCacheToDomain(orderID, cache), nil
+}
+
 func (r *repo) GetByID(ctx context.Context, orderID string) (*domain.Order, error) {
 	started := time.Now()
 	status := "success"

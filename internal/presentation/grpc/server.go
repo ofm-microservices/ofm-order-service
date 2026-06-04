@@ -229,6 +229,44 @@ func (s *server) GetOrderRequirementsByID(ctx context.Context, req *orderwritev1
 	}
 	return resp, nil
 }
+
+func (s *server) GetOrderDeliveryByID(ctx context.Context, req *orderwritev1.GetOrderDeliveryByIDRequest) (*orderwritev1.GetOrderDeliveryByIDResponse, error) {
+	if strings.TrimSpace(req.GetOrderId()) == "" || strings.TrimSpace(req.GetUserId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid order delivery request")
+	}
+	res, err := s.svc.GetOrderDeliveryByID(ctx, app.GetOrderDeliveryByIDCommand{
+		OrderID: req.GetOrderId(),
+		UserID:  req.GetUserId(),
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			return nil, status.Error(codes.NotFound, domain.ErrOrderNotFound.Error())
+		}
+		if errors.Is(err, domain.ErrOrderNotOwned) {
+			return nil, status.Error(codes.PermissionDenied, domain.ErrOrderNotOwned.Error())
+		}
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	resp := &orderwritev1.GetOrderDeliveryByIDResponse{
+		OrderDelivery:      &orderwritev1.OrderDelivery{},
+		OrderDeliveryFiles: make([]*orderwritev1.OrderDeliveryFile, 0, len(res.OrderDeliveryFiles)),
+	}
+	if res != nil && res.OrderDelivery != nil {
+		resp.OrderDelivery = &orderwritev1.OrderDelivery{
+			DeliveryMessage: res.OrderDelivery.DeliveryMessage,
+			CreatedAt:       res.OrderDelivery.CreatedAt,
+		}
+	}
+	for _, file := range res.OrderDeliveryFiles {
+		resp.OrderDeliveryFiles = append(resp.OrderDeliveryFiles, &orderwritev1.OrderDeliveryFile{
+			FileId:    file.FileID,
+			FileUrl:   file.FileURL,
+			SortOrder: file.SortOrder,
+			CreatedAt: file.CreatedAt,
+		})
+	}
+	return resp, nil
+}
 func (s *server) MarkPaymentPending(ctx context.Context, req *orderwritev1.MarkPaymentPendingRequest) (*orderwritev1.MarkPaymentPendingResponse, error) {
 	_, err := s.svc.MarkPaymentPending(ctx, app.MarkPaymentPendingCommand{OrderID: req.GetOrderId(), PaymentIntentID: req.GetPaymentId(), CheckoutURL: req.GetCheckoutUrl(), OccurredAt: req.GetRequestedAt()})
 	if err != nil {

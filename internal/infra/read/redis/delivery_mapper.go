@@ -31,3 +31,27 @@ func mapDeliveryToCache(delivery *domain.OrderDeliveryProjection) model.Delivery
 	}
 	return out
 }
+
+func mapDeliveryCacheToDomain(orderID string, cache model.DeliveryCache) *domain.OrderDeliveryProjection {
+	out := &domain.OrderDeliveryProjection{
+		OrderID: strings.TrimSpace(orderID),
+	}
+	if strings.TrimSpace(cache.OrderDelivery.DeliveryMessage) != "" || strings.TrimSpace(cache.OrderDelivery.CreatedAt) != "" {
+		out.Delivery = &domain.OrderDelivery{
+			OrderID:         strings.TrimSpace(orderID),
+			DeliveryMessage: strings.TrimSpace(cache.OrderDelivery.DeliveryMessage),
+			CreatedAt:       parseTimeOrZero(cache.OrderDelivery.CreatedAt),
+		}
+	}
+	out.DeliveryFiles = make([]domain.OrderDeliveryFile, 0, len(cache.OrderDeliveryFiles))
+	for _, file := range cache.OrderDeliveryFiles {
+		out.DeliveryFiles = append(out.DeliveryFiles, domain.OrderDeliveryFile{
+			OrderID:   strings.TrimSpace(orderID),
+			FileID:    strings.TrimSpace(file.FileID),
+			FileURL:   strings.TrimSpace(file.FileURL),
+			SortOrder: file.SortOrder,
+			CreatedAt: parseTimeOrZero(file.CreatedAt),
+		})
+	}
+	return out
+}
