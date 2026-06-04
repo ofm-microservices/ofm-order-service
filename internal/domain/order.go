@@ -89,13 +89,37 @@ type OrderRequirementCustomerMessage struct {
 	UpdatedAt time.Time
 }
 
+// OrderDelivery stores one seller delivery snapshot.
+type OrderDelivery struct {
+	OrderID         string
+	SellerID        string
+	DeliveryMessage string
+	CreatedAt       time.Time
+}
+
+// OrderDeliveryFile stores one delivery file snapshot.
+type OrderDeliveryFile struct {
+	OrderID   string
+	FileID    string
+	FileURL   string
+	SortOrder int32
+	CreatedAt time.Time
+}
+
+// OrderDeliveryProjection stores the immutable delivery page projection.
+type OrderDeliveryProjection struct {
+	OrderID       string
+	Delivery      *OrderDelivery
+	DeliveryFiles []OrderDeliveryFile
+}
+
 // OrderRequirements stores the immutable requirements page projection.
 type OrderRequirements struct {
-	OrderID         string
-	BuyerID         string
-	SellerID        string
+	OrderID          string
+	BuyerID          string
+	SellerID         string
 	QuestionsAnswers []OrderRequirementQuestionAnswer
-	CustomerMessage *OrderRequirementCustomerMessage
+	CustomerMessage  *OrderRequirementCustomerMessage
 }
 
 // CreateOrderParams carries the snapshot used to create an order.
@@ -177,6 +201,7 @@ type OrderRepository interface {
 	SaveCheckoutSession(ctx context.Context, orderID, paymentIntentID, checkoutURL string) error
 	GetLifecycleSnapshot(ctx context.Context, orderID string) (*Order, error)
 	SaveDelivery(ctx context.Context, params SaveDeliveryParams) (*Order, error)
+	GetDeliveryByID(ctx context.Context, orderID string) (*OrderDeliveryProjection, error)
 	MarkReleasePending(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
 	RequestRevision(ctx context.Context, params RequestRevisionParams) (*Order, error)
 	OpenDispute(ctx context.Context, params OpenDisputeParams) (*Order, error)
@@ -231,6 +256,7 @@ type OrderReadRepository interface {
 	GetByID(ctx context.Context, orderID string) (*Order, error)
 	GetPreviewByID(ctx context.Context, orderID string) (*OrderPreview, error)
 	UpsertRequirements(ctx context.Context, orderID string, requirements *OrderRequirements) error
+	UpsertDelivery(ctx context.Context, orderID string, delivery *OrderDeliveryProjection) error
 	GetRequirementsByID(ctx context.Context, orderID string) (*OrderRequirements, error)
 }
 

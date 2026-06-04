@@ -138,6 +138,26 @@ func (r *testOrders) SaveDelivery(context.Context, domain.SaveDeliveryParams) (*
 	return &domain.Order{Status: domain.OrderStatusDelivered}, nil
 }
 
+func (r *testOrders) GetDeliveryByID(_ context.Context, orderID string) (*domain.OrderDeliveryProjection, error) {
+	return &domain.OrderDeliveryProjection{
+		OrderID: orderID,
+		Delivery: &domain.OrderDelivery{
+			OrderID:         orderID,
+			DeliveryMessage: "done",
+			CreatedAt:       time.Unix(10, 0).UTC(),
+		},
+		DeliveryFiles: []domain.OrderDeliveryFile{
+			{
+				OrderID:   orderID,
+				FileID:    "file-1",
+				FileURL:   "https://cdn.example.com/file-1.png",
+				SortOrder: 1,
+				CreatedAt: time.Unix(11, 0).UTC(),
+			},
+		},
+	}, nil
+}
+
 func (r *testOrders) MarkReleasePending(_ context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
 	return &domain.Order{OrderID: orderID, PaymentReleaseID: paymentReleaseID, Status: domain.OrderStatusReleasePending}, nil
 }
@@ -161,6 +181,7 @@ func (r *testOrders) MarkReleaseFailed(_ context.Context, orderID, reason string
 type testRead struct {
 	orders       []*domain.Order
 	requirements *domain.OrderRequirements
+	deliveries   []*domain.OrderDeliveryProjection
 }
 
 func (r *testRead) Upsert(_ context.Context, order *domain.Order) error {
@@ -183,7 +204,14 @@ func (r *testRead) GetPreviewByID(_ context.Context, orderID string) (*domain.Or
 	return &domain.OrderPreview{OrderID: orderID, CreatedAt: time.Now().UTC(), Status: domain.OrderStatusRequirementsPending}, nil
 }
 
-func (r *testRead) UpsertRequirements(context.Context, string, *domain.OrderRequirements) error { return nil }
+func (r *testRead) UpsertRequirements(context.Context, string, *domain.OrderRequirements) error {
+	return nil
+}
+
+func (r *testRead) UpsertDelivery(_ context.Context, _ string, delivery *domain.OrderDeliveryProjection) error {
+	r.deliveries = append(r.deliveries, delivery)
+	return nil
+}
 
 func (r *testRead) GetRequirementsByID(_ context.Context, orderID string) (*domain.OrderRequirements, error) {
 	if r.requirements != nil {
@@ -365,6 +393,15 @@ func TestStateTransitionsUpdateReadModel(t *testing.T) {
 	if delivered.Status != domain.OrderStatusDelivered {
 		t.Fatalf("delivered status = %q, want %q", delivered.Status, domain.OrderStatusDelivered)
 	}
+	if got := len(read.deliveries); got != 1 {
+		t.Fatalf("delivery cache calls = %d, want 1", got)
+	}
+	if got := len(broker.subjects); got == 0 {
+		t.Fatalf("publish calls = 0, want delivery projection publish")
+	}
+	if got := broker.subjects[len(broker.subjects)-1]; got != "order.projection.delivery" {
+		t.Fatalf("last publish subject = %q, want order.projection.delivery", got)
+	}
 
 	rel, err := svc.MarkReleasePending(context.Background(), MarkReleasePendingCommand{OrderID: "order-1", PaymentReleaseID: "rel-1"})
 	if err != nil {
@@ -457,8 +494,8 @@ func TestGetOrderRequirementsByIDReturnsSnapshot(t *testing.T) {
 	}}
 	read := &testRead{orders: []*domain.Order{{OrderID: "order-1", BuyerID: "buyer-1", SellerID: "seller-1"}}}
 	read.requirements = &domain.OrderRequirements{
-		OrderID: "order-1",
-		BuyerID: "buyer-1",
+		OrderID:  "order-1",
+		BuyerID:  "buyer-1",
 		SellerID: "seller-1",
 		QuestionsAnswers: []domain.OrderRequirementQuestionAnswer{{
 			Question: &domain.OrderRequirementQuestion{QuestionID: "question-1", Text: "Question?", Type: "text", Required: true, SortOrder: 1},
