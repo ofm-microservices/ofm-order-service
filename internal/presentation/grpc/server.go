@@ -113,7 +113,22 @@ func (s *server) GetOrderPaymentSnapshot(ctx context.Context, req *orderwritev1.
 	if err != nil {
 		return nil, err
 	}
-	return &orderwritev1.GetOrderPaymentSnapshotResponse{Order: &orderwritev1.OrderSnapshot{OrderId: snap.OrderID, SagaId: snap.SagaID, BuyerUserId: snap.BuyerID, SellerUserId: snap.SellerID, SellerUsername: snap.SellerUsername, GigTitleSnapshot: snap.GigTitle, PackageTitleSnapshot: snap.PackageTitle, PriceAmountSnapshot: snap.PriceCents, PriceCurrencySnapshot: snap.Currency, Status: snap.Status}}, nil
+	return &orderwritev1.GetOrderPaymentSnapshotResponse{
+		Order: &orderwritev1.OrderSnapshot{
+			OrderId:               snap.OrderID,
+			SagaId:                snap.SagaID,
+			BuyerUserId:           snap.BuyerID,
+			SellerUserId:          snap.SellerID,
+			SellerUsername:        snap.SellerUsername,
+			GigTitleSnapshot:      snap.GigTitle,
+			PackageTitleSnapshot:  snap.PackageTitle,
+			PriceAmountSnapshot:   snap.PriceCents,
+			PriceCurrencySnapshot: snap.Currency,
+			Status:                snap.Status,
+		},
+		RequirementsCompleted: snap.RequirementsCompleted,
+		MessageCompleted:      snap.MessageCompleted,
+	}, nil
 }
 
 func (s *server) GetOrderPreviewByID(ctx context.Context, req *orderwritev1.GetOrderPreviewByIDRequest) (*orderwritev1.GetOrderPreviewByIDResponse, error) {

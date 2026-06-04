@@ -200,16 +200,18 @@ type CreateDraftOrderResult struct {
 
 // OrderPaymentSnapshot returns the current immutable payment-facing snapshot.
 type OrderPaymentSnapshot struct {
-	OrderID        string
-	SagaID         string
-	BuyerID        string
-	SellerID       string
-	SellerUsername string
-	GigTitle       string
-	PackageTitle   string
-	PriceCents     int64
-	Currency       string
-	Status         string
+	OrderID               string
+	SagaID                string
+	BuyerID               string
+	SellerID              string
+	SellerUsername        string
+	GigTitle              string
+	PackageTitle          string
+	PriceCents            int64
+	Currency              string
+	Status                string
+	RequirementsCompleted bool
+	MessageCompleted      bool
 }
 
 // OrderLifecycleSnapshot returns the state needed by the saga for delivery and completion.

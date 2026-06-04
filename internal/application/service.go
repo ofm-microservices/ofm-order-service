@@ -157,17 +157,23 @@ func (s *service) GetOrderPaymentSnapshot(ctx context.Context, orderID string) (
 	if err != nil {
 		return nil, err
 	}
+	completed, messageCompleted, err := s.orders.HasConfirmPrerequisites(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
 	return &OrderPaymentSnapshot{
-		OrderID:        order.OrderID,
-		SagaID:         order.SagaID,
-		BuyerID:        order.BuyerID,
-		SellerID:       order.SellerID,
-		SellerUsername: order.SellerUsername,
-		GigTitle:       order.GigTitle,
-		PackageTitle:   order.PackageTier,
-		PriceCents:     order.PriceCents,
-		Currency:       order.Currency,
-		Status:         order.Status,
+		OrderID:               order.OrderID,
+		SagaID:                order.SagaID,
+		BuyerID:               order.BuyerID,
+		SellerID:              order.SellerID,
+		SellerUsername:        order.SellerUsername,
+		GigTitle:              order.GigTitle,
+		PackageTitle:          order.PackageTier,
+		PriceCents:            order.PriceCents,
+		Currency:              order.Currency,
+		Status:                order.Status,
+		RequirementsCompleted: completed,
+		MessageCompleted:      messageCompleted,
 	}, nil
 }
 

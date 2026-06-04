@@ -126,6 +126,7 @@ type OrderRepository interface {
 	Create(ctx context.Context, params CreateOrderParams) (*Order, error)
 	SaveQuestionSnapshots(ctx context.Context, params SaveQuestionSnapshotsParams) error
 	GetByID(ctx context.Context, orderID string) (*Order, error)
+	HasConfirmPrerequisites(ctx context.Context, orderID string) (bool, bool, error)
 	MarkPaid(ctx context.Context, orderID, paymentIntentID string) (*Order, error)
 	MarkFunded(ctx context.Context, orderID, paymentIntentID string) (*Order, error)
 	MarkFailed(ctx context.Context, orderID, reason string) (*Order, error)
