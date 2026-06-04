@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
@@ -39,25 +40,7 @@ func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 	if order == nil {
 		return ErrNilOrder
 	}
-	cache := model.OrderCache{
-		OrderID:             order.OrderID,
-		SagaID:              order.SagaID,
-		BuyerID:             order.BuyerID,
-		SellerID:            order.SellerID,
-		SellerUsername:      order.SellerUsername,
-		GigID:               order.GigID,
-		GigTitle:            order.GigTitle,
-		PackageID:           order.PackageID,
-		PackageTier:         order.PackageTier,
-		PackageDescription:  order.PackageDescription,
-		PackageDeliveryDays: order.PackageDeliveryDays,
-		PriceCents:          order.PriceCents,
-		Currency:            order.Currency,
-		Status:              order.Status,
-		PaymentIntentID:     order.PaymentIntentID,
-		CreatedAt:           order.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt:           order.UpdatedAt.Format(time.RFC3339Nano),
-	}
+	cache := mapDomainToCache(order)
 	payload, err := json.Marshal(cache)
 	if err != nil {
 		return err
@@ -68,4 +51,84 @@ func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 		return err
 	}
 	return nil
+}
+
+func (r *repo) GetByID(ctx context.Context, orderID string) (*domain.Order, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "order", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, OrderKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get order cache failed", logging.Operation("redis.order.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.OrderCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr != nil {
+			status = "error"
+			r.log.Error("unmarshal order cache failed", logging.Operation("redis.order.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+			return nil, err
+		}
+		return mapLegacyCacheToDomain(legacy), nil
+	}
+	if strings.TrimSpace(cache.Order.OrderID) == "" {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr == nil && strings.TrimSpace(legacy.OrderID) != "" {
+			return mapLegacyCacheToDomain(legacy), nil
+		}
+		return nil, domain.ErrOrderNotFound
+	}
+	return mapCacheToDomain(cache), nil
+}
+
+func (r *repo) GetPreviewByID(ctx context.Context, orderID string) (*domain.OrderPreview, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "order_preview", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, OrderKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get order preview cache failed", logging.Operation("redis.order_preview.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.OrderCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr != nil {
+			status = "error"
+			r.log.Error("unmarshal order preview cache failed", logging.Operation("redis.order_preview.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+			return nil, err
+		}
+		return &domain.OrderPreview{
+			OrderID:   legacy.OrderID,
+			CreatedAt: parseTimeOrZero(legacy.CreatedAt),
+			Status:    legacy.Status,
+		}, nil
+	}
+	if strings.TrimSpace(cache.Order.OrderID) == "" {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr == nil && strings.TrimSpace(legacy.OrderID) != "" {
+			return &domain.OrderPreview{
+				OrderID:   legacy.OrderID,
+				CreatedAt: parseTimeOrZero(legacy.CreatedAt),
+				Status:    legacy.Status,
+			}, nil
+		}
+		return nil, domain.ErrOrderNotFound
+	}
+	return &domain.OrderPreview{
+		OrderID:   cache.Order.OrderID,
+		CreatedAt: parseTimeOrZero(cache.Order.CreatedAt),
+		Status:    cache.Order.Status,
+	}, nil
 }

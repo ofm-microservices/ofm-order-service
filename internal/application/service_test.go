@@ -142,6 +142,21 @@ func (r *testRead) Upsert(_ context.Context, order *domain.Order) error {
 	return nil
 }
 
+func (r *testRead) GetByID(_ context.Context, orderID string) (*domain.Order, error) {
+	if len(r.orders) > 0 {
+		return r.orders[len(r.orders)-1], nil
+	}
+	return &domain.Order{OrderID: orderID, Status: domain.OrderStatusRequirementsPending}, nil
+}
+
+func (r *testRead) GetPreviewByID(_ context.Context, orderID string) (*domain.OrderPreview, error) {
+	if len(r.orders) > 0 {
+		last := r.orders[len(r.orders)-1]
+		return &domain.OrderPreview{OrderID: last.OrderID, CreatedAt: last.CreatedAt, Status: last.Status}, nil
+	}
+	return &domain.OrderPreview{OrderID: orderID, CreatedAt: time.Now().UTC(), Status: domain.OrderStatusRequirementsPending}, nil
+}
+
 type testLogger struct{}
 
 func (testLogger) Debug(string, ...logging.Field)       {}
@@ -151,12 +166,39 @@ func (testLogger) Error(string, ...logging.Field)       {}
 func (testLogger) With(...logging.Field) logging.Logger { return testLogger{} }
 func (testLogger) Sync() error                          { return nil }
 
+type testFiles struct {
+	url string
+	err error
+}
+
+func (f *testFiles) GetFileURL(context.Context, string) (string, error) { return f.url, f.err }
+func (f *testFiles) Close() error                                       { return nil }
+
+type testUsers struct {
+	preview map[string]*UserPreview
+	err     error
+}
+
+func (u *testUsers) GetUserPreviewByIDNoCache(_ context.Context, userID string) (*UserPreview, error) {
+	if u.err != nil {
+		return nil, u.err
+	}
+	if u.preview == nil {
+		return nil, nil
+	}
+	return u.preview[userID], nil
+}
+
+func (u *testUsers) Close() error { return nil }
+
 func TestNewRejectsNilLogger(t *testing.T) {
 	orders := &testOrders{}
 	read := &testRead{}
+	files := &testFiles{}
+	users := &testUsers{}
 	broker := &testBroker{}
 
-	svc, err := New(orders, read, broker, Config{}, nil)
+	svc, err := New(orders, read, files, users, broker, Config{}, nil)
 	if !errors.Is(err, ErrNilLogger) {
 		t.Fatalf("err = %v, want ErrNilLogger", err)
 	}
@@ -168,9 +210,14 @@ func TestNewRejectsNilLogger(t *testing.T) {
 func TestCreatePublishesSuccessAndUpsertsReadModel(t *testing.T) {
 	orders := &testOrders{}
 	read := &testRead{}
+	files := &testFiles{}
+	users := &testUsers{preview: map[string]*UserPreview{
+		"buyer-1":  {UserID: "buyer-1", Username: "buyer", DisplayName: "Buyer", AvatarURL: "buyer.png"},
+		"seller-1": {UserID: "seller-1", Username: "seller", DisplayName: "Seller", AvatarURL: "seller.png"},
+	}}
 	broker := &testBroker{}
 
-	svc, err := New(orders, read, broker, Config{OrderCreateResultSubject: "order.create.result"}, testLogger{})
+	svc, err := New(orders, read, files, users, broker, Config{OrderCreateResultSubject: "order.create.result"}, testLogger{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -200,11 +247,18 @@ func TestCreatePublishesSuccessAndUpsertsReadModel(t *testing.T) {
 	if got := len(read.orders); got != 1 {
 		t.Fatalf("upsert calls = %d, want 1", got)
 	}
-	if got := broker.subjects; len(got) != 1 || got[0] != "order.create.result" {
-		t.Fatalf("subjects = %#v, want [order.create.result]", got)
+	if got := broker.subjects; len(got) != 2 || got[0] != "order.projection.preview" || got[1] != "order.create.result" {
+		t.Fatalf("subjects = %#v, want [order.projection.preview order.create.result]", got)
+	}
+	var preview domain.Order
+	if err := json.Unmarshal(broker.payloads[0], &preview); err != nil {
+		t.Fatalf("unmarshal preview: %v", err)
+	}
+	if preview.Status != domain.OrderStatusRequirementsPending {
+		t.Fatalf("preview status = %v, want %v", preview.Status, domain.OrderStatusRequirementsPending)
 	}
 	var result map[string]any
-	if err := json.Unmarshal(broker.payloads[0], &result); err != nil {
+	if err := json.Unmarshal(broker.payloads[1], &result); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 	if status, _ := result["status"].(string); status != "success" {
@@ -215,9 +269,11 @@ func TestCreatePublishesSuccessAndUpsertsReadModel(t *testing.T) {
 func TestCreatePublishesFailureResultWhenCreateFails(t *testing.T) {
 	orders := &testOrders{createErr: errors.New("boom")}
 	read := &testRead{}
+	files := &testFiles{}
+	users := &testUsers{}
 	broker := &testBroker{}
 
-	svc, err := New(orders, read, broker, Config{OrderCreateResultSubject: "order.create.result"}, testLogger{})
+	svc, err := New(orders, read, files, users, broker, Config{OrderCreateResultSubject: "order.create.result"}, testLogger{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -237,9 +293,11 @@ func TestCreatePublishesFailureResultWhenCreateFails(t *testing.T) {
 func TestStateTransitionsUpdateReadModel(t *testing.T) {
 	orders := &testOrders{snap: &domain.Order{OrderID: "order-1", Status: domain.OrderStatusDelivered}}
 	read := &testRead{}
+	files := &testFiles{}
+	users := &testUsers{}
 	broker := &testBroker{}
 
-	svc, err := New(orders, read, broker, Config{}, testLogger{})
+	svc, err := New(orders, read, files, users, broker, Config{}, testLogger{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -295,5 +353,63 @@ func TestStateTransitionsUpdateReadModel(t *testing.T) {
 	}
 	if releaseFailed.Status != domain.OrderStatusReleaseFailed {
 		t.Fatalf("release failed status = %q, want %q", releaseFailed.Status, domain.OrderStatusReleaseFailed)
+	}
+}
+
+func TestGetOrderPreviewByIDHydratesParticipants(t *testing.T) {
+	orders := &testOrders{snap: &domain.Order{
+		OrderID:       "order-1",
+		BuyerID:       "buyer-1",
+		SellerID:      "seller-1",
+		GigID:         "gig-1",
+		GigTitle:      "Gig",
+		PackageID:     "pkg-1",
+		PackageTier:   "basic",
+		PriceCents:    1000,
+		Currency:      "usd",
+		Status:        domain.OrderStatusFunded,
+		PictureFileID: "file-1",
+		CreatedAt:     time.Unix(10, 0).UTC(),
+		UpdatedAt:     time.Unix(20, 0).UTC(),
+	}}
+	read := &testRead{orders: []*domain.Order{{
+		OrderID:       "order-1",
+		BuyerID:       "buyer-1",
+		SellerID:      "seller-1",
+		GigID:         "gig-1",
+		GigTitle:      "Gig",
+		PackageID:     "pkg-1",
+		PackageTier:   "basic",
+		PriceCents:    1000,
+		Currency:      "usd",
+		Status:        domain.OrderStatusFunded,
+		PictureFileID: "file-1",
+		CreatedAt:     time.Unix(10, 0).UTC(),
+		UpdatedAt:     time.Unix(20, 0).UTC(),
+	}}}
+	files := &testFiles{url: "https://cdn.example.com/file-1.png"}
+	users := &testUsers{preview: map[string]*UserPreview{
+		"buyer-1":  {UserID: "buyer-1", Username: "alex1", DisplayName: "Buyer", AvatarURL: "buyer.png"},
+		"seller-1": {UserID: "seller-1", Username: "alex2", DisplayName: "Seller", AvatarURL: "seller.png"},
+	}}
+	broker := &testBroker{}
+
+	svc, err := New(orders, read, files, users, broker, Config{}, testLogger{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	res, err := svc.GetOrderPreviewByID(context.Background(), GetOrderPreviewByIDCommand{OrderID: "order-1", UserID: "seller-1", Role: "seller"})
+	if err != nil {
+		t.Fatalf("GetOrderPreviewByID: %v", err)
+	}
+	if res.Customer == nil || res.Freelancer == nil {
+		t.Fatalf("participants = %#v, %#v", res.Customer, res.Freelancer)
+	}
+	if res.Gig == nil || res.Gig.PictureURL != "https://cdn.example.com/file-1.png" {
+		t.Fatalf("gig = %#v", res.Gig)
+	}
+	if got := len(read.orders); got != 2 {
+		t.Fatalf("orders tracked = %d, want 2", got)
 	}
 }

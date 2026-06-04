@@ -36,7 +36,7 @@ COALESCE(disputed_at, 'epoch'::timestamptz), COALESCE(buyer_response_deadline, '
 COALESCE(revision_count_used, 0), created_at, updated_at`
 
 const orderSnapshotColumns = `
-gig_id, seller_username, gig_title, package_id, package_tier, package_description, package_delivery_days,
+gig_id, seller_username, gig_title, picture_file_id, package_id, package_tier, package_description, package_delivery_days,
 price_cents, currency, created_at`
 
 const createOrderQuery = `
@@ -51,13 +51,14 @@ RETURNING ` + orderColumns
 
 const createOrderSnapshotQuery = `
 INSERT INTO order_gig_snapshot (
-	order_id, gig_id, seller_username, gig_title, package_id, package_tier, package_description, package_delivery_days,
+	order_id, gig_id, seller_username, gig_title, picture_file_id, package_id, package_tier, package_description, package_delivery_days,
 	price_cents, currency, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
 ON CONFLICT (order_id) DO UPDATE SET
 	gig_id = EXCLUDED.gig_id,
 	seller_username = EXCLUDED.seller_username,
 	gig_title = EXCLUDED.gig_title,
+	picture_file_id = EXCLUDED.picture_file_id,
 	package_id = EXCLUDED.package_id,
 	package_tier = EXCLUDED.package_tier,
 	package_description = EXCLUDED.package_description,
@@ -199,6 +200,7 @@ func (r *repo) Create(ctx context.Context, params domain.CreateOrderParams) (*do
 		params.GigID,
 		params.SellerUsername,
 		params.GigTitle,
+		params.PictureFileID,
 		params.PackageID,
 		params.PackageTier,
 		params.PackageDescription,
@@ -409,6 +411,7 @@ func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*doma
 		&snap.GigID,
 		&snap.SellerUsername,
 		&snap.GigTitle,
+		&snap.PictureFileID,
 		&snap.PackageID,
 		&snap.PackageTier,
 		&snap.PackageDescription,
@@ -422,6 +425,7 @@ func (r *repo) scanOrderWithSnapshot(ctx context.Context, orderID string) (*doma
 	order.GigID = snap.GigID
 	order.SellerUsername = snap.SellerUsername
 	order.GigTitle = snap.GigTitle
+	order.PictureFileID = snap.PictureFileID
 	order.PackageID = snap.PackageID
 	order.PackageTier = snap.PackageTier
 	order.PackageDescription = snap.PackageDescription
@@ -470,6 +474,7 @@ func mapRow(row model.OrderRow) *domain.Order {
 		SellerUsername:        row.SellerUsername,
 		GigID:                 row.GigID,
 		GigTitle:              row.GigTitle,
+		PictureFileID:         row.PictureFileID,
 		PackageID:             row.PackageID,
 		PackageTier:           row.PackageTier,
 		PackageDescription:    row.PackageDescription,

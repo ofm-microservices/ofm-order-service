@@ -9,6 +9,8 @@ import (
 type Config struct {
 	App     AppConfig
 	GRPC    GRPCConfig
+	File    FileServiceConfig
+	User    UserServiceConfig
 	DB      DBConfig
 	Redis   RedisConfig
 	NATS    NATSConfig

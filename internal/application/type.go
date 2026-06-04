@@ -14,6 +14,7 @@ type Service interface {
 	Fail(ctx context.Context, cmd FailOrderCommand) error
 	CreateDraftOrder(ctx context.Context, cmd CreateDraftOrderCommand) (*CreateDraftOrderResult, error)
 	GetOrderPaymentSnapshot(ctx context.Context, orderID string) (*OrderPaymentSnapshot, error)
+	GetOrderPreviewByID(ctx context.Context, cmd GetOrderPreviewByIDCommand) (*OrderPreviewResult, error)
 	MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error)
 	MarkOrderFunded(ctx context.Context, cmd MarkOrderFundedCommand) (*MarkOrderFundedResult, error)
 	MarkPaymentFailed(ctx context.Context, cmd MarkPaymentFailedCommand) (*MarkPaymentFailedResult, error)
@@ -44,7 +45,13 @@ type Logger = logging.Logger
 
 // Config carries application-level subject names owned by order-service.
 type Config struct {
-	OrderCreateResultSubject string
+	OrderCreateResultSubject      string
+	OrderPreviewProjectionSubject string
+}
+
+// FileServiceConfig carries the upstream file-service connection settings.
+type FileServiceConfig struct {
+	Address string
 }
 
 // OrderRepository aliases the domain write-model contract.
@@ -52,6 +59,71 @@ type OrderRepository = domain.OrderRepository
 
 // OrderReadRepository aliases the domain read-model contract.
 type OrderReadRepository = domain.OrderReadRepository
+
+// FileService resolves public file URLs for order snapshot media.
+type FileService interface {
+	GetFileURL(ctx context.Context, fileID string) (string, error)
+	Close() error
+}
+
+// UserService resolves public user snapshots for order-page projections.
+type UserService interface {
+	GetUserPreviewByIDNoCache(ctx context.Context, userID string) (*UserPreview, error)
+	Close() error
+}
+
+// UserPreview returns the public user fields projected into an order page.
+type UserPreview struct {
+	UserID      string
+	Username    string
+	DisplayName string
+	AvatarURL   string
+}
+
+// GetOrderPreviewByIDCommand carries the authenticated user context for the
+// user-scoped order preview lookup.
+type GetOrderPreviewByIDCommand struct {
+	OrderID string
+	UserID  string
+	Role    string
+}
+
+// OrderPreviewResult returns the minimal order preview payload.
+type OrderPreviewResult struct {
+	Order      *OrderPreview
+	Gig        *OrderPreviewGig
+	Customer   *OrderPreviewUser
+	Freelancer *OrderPreviewUser
+}
+
+// OrderPreview describes the order header returned by the preview endpoint.
+type OrderPreview struct {
+	OrderID   string
+	CreatedAt string
+	Status    string
+}
+
+// OrderPreviewGig describes the gig snapshot returned alongside the order preview.
+type OrderPreviewGig struct {
+	GigID               string
+	Title               string
+	PictureFileID       string
+	PictureURL          string
+	PackageID           string
+	PackageTitle        string
+	PriceCents          int64
+	Currency            string
+	Description         string
+	PackageDeliveryDays int32
+}
+
+// OrderPreviewUser describes one participant snapshot returned with the order preview.
+type OrderPreviewUser struct {
+	UserID      string
+	Username    string
+	DisplayName string
+	AvatarURL   string
+}
 
 // CreateOrderCommand carries the immutable order snapshot from the saga.
 type CreateOrderCommand struct {
@@ -62,6 +134,7 @@ type CreateOrderCommand struct {
 	SellerUsername      string
 	GigID               string
 	GigTitle            string
+	PictureFileID       string
 	PackageID           string
 	PackageTier         string
 	PackageDescription  string
@@ -97,6 +170,7 @@ type CreateDraftOrderCommand struct {
 	SellerUsername      string
 	GigID               string
 	GigTitle            string
+	PictureFileID       string
 	PackageID           string
 	PackageTier         string
 	PackageDescription  string

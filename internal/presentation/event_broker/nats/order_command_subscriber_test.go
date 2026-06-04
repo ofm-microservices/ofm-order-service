@@ -49,6 +49,9 @@ func (s *commandService) CreateDraftOrder(context.Context, app.CreateDraftOrderC
 func (s *commandService) GetOrderPaymentSnapshot(context.Context, string) (*app.OrderPaymentSnapshot, error) {
 	return nil, nil
 }
+func (s *commandService) GetOrderPreviewByID(context.Context, app.GetOrderPreviewByIDCommand) (*app.OrderPreviewResult, error) {
+	return nil, nil
+}
 func (s *commandService) MarkPaymentPending(context.Context, app.MarkPaymentPendingCommand) (*app.MarkPaymentPendingResult, error) {
 	return nil, nil
 }
