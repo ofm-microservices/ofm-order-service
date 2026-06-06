@@ -247,11 +247,12 @@ func (s *server) GetOrderDeliveryByID(ctx context.Context, req *orderwritev1.Get
 		}
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
-	resp := &orderwritev1.GetOrderDeliveryByIDResponse{
-		OrderDelivery:      &orderwritev1.OrderDelivery{},
-		OrderDeliveryFiles: make([]*orderwritev1.OrderDeliveryFile, 0, len(res.OrderDeliveryFiles)),
+	resp := &orderwritev1.GetOrderDeliveryByIDResponse{}
+	if res == nil {
+		return resp, nil
 	}
-	if res != nil && res.OrderDelivery != nil {
+	resp.OrderDeliveryFiles = make([]*orderwritev1.OrderDeliveryFile, 0, len(res.OrderDeliveryFiles))
+	if res.OrderDelivery != nil {
 		resp.OrderDelivery = &orderwritev1.OrderDelivery{
 			DeliveryMessage: res.OrderDelivery.DeliveryMessage,
 			CreatedAt:       res.OrderDelivery.CreatedAt,
@@ -266,6 +267,26 @@ func (s *server) GetOrderDeliveryByID(ctx context.Context, req *orderwritev1.Get
 		})
 	}
 	return resp, nil
+}
+
+func (s *server) GetOrderCountByGigID(ctx context.Context, req *orderwritev1.GetOrderCountByGigIDRequest) (*orderwritev1.GetOrderCountByGigIDResponse, error) {
+	gigID := strings.TrimSpace(req.GetGigId())
+	if gigID == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid gig id")
+	}
+
+	res, err := s.svc.GetOrderCountByGigID(ctx, gigID)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidOrder) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+
+	return &orderwritev1.GetOrderCountByGigIDResponse{
+		GigId:      res.GigID,
+		OrderCount: res.OrderCount,
+	}, nil
 }
 func (s *server) MarkPaymentPending(ctx context.Context, req *orderwritev1.MarkPaymentPendingRequest) (*orderwritev1.MarkPaymentPendingResponse, error) {
 	_, err := s.svc.MarkPaymentPending(ctx, app.MarkPaymentPendingCommand{OrderID: req.GetOrderId(), PaymentIntentID: req.GetPaymentId(), CheckoutURL: req.GetCheckoutUrl(), OccurredAt: req.GetRequestedAt()})

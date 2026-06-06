@@ -158,6 +158,10 @@ func (r *testOrders) GetDeliveryByID(_ context.Context, orderID string) (*domain
 	}, nil
 }
 
+func (r *testOrders) GetOrderCountByGigID(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
 func (r *testOrders) MarkReleasePending(_ context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
 	return &domain.Order{OrderID: orderID, PaymentReleaseID: paymentReleaseID, Status: domain.OrderStatusReleasePending}, nil
 }

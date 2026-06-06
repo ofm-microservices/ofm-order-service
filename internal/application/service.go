@@ -24,6 +24,7 @@ type service struct {
 	previewSubject      string
 	requirementsSubject string
 	deliverySubject     string
+	gigCountSubject     string
 	log                 Logger
 }
 
@@ -98,12 +99,12 @@ func (s *service) Create(ctx context.Context, cmd CreateOrderCommand) error {
 		RequestedAt:         requestedAt,
 	})
 	if err != nil {
-		return s.publishCreateResult(ctx, cmd.SagaID, cmd.OrderID, "failed", "order.create", err.Error())
+		return s.publishCreateResult(ctx, cmd.SagaID, cmd.OrderID, cmd.GigID, "failed", "order.create", err.Error())
 	}
 	if err := s.refreshOrderProjection(ctx, order); err != nil {
 		return err
 	}
-	return s.publishCreateResult(ctx, cmd.SagaID, cmd.OrderID, "success", "order.create", "")
+	return s.publishCreateResult(ctx, cmd.SagaID, cmd.OrderID, cmd.GigID, "success", "order.create", "")
 }
 
 func (s *service) Confirm(ctx context.Context, cmd ConfirmOrderCommand) error {
@@ -361,6 +362,27 @@ func (s *service) GetOrderDeliveryByID(ctx context.Context, cmd GetOrderDelivery
 	return projection, nil
 }
 
+// GetOrderCountByGigID returns the canonical order count for one gig directly
+// from YugabyteDB.
+func (s *service) GetOrderCountByGigID(ctx context.Context, gigID string) (*OrderCountResult, error) {
+	gigID = strings.TrimSpace(gigID)
+	if gigID == "" {
+		return nil, domain.ErrInvalidOrder
+	}
+
+	count, err := s.orders.GetOrderCountByGigID(ctx, gigID)
+	if err != nil {
+		s.log.Error("failed to load gig order count",
+			logging.Operation("order.get_order_count_by_gig_id"),
+			logging.String("gig_id", gigID),
+			logging.Err(err),
+		)
+		return nil, err
+	}
+
+	return &OrderCountResult{GigID: gigID, OrderCount: count}, nil
+}
+
 func (s *service) MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error) {
 	if err := s.orders.SaveCheckoutSession(ctx, cmd.OrderID, cmd.PaymentIntentID, cmd.CheckoutURL); err != nil {
 		return nil, err
@@ -596,10 +618,11 @@ func (s *service) MarkReleaseFailed(ctx context.Context, cmd MarkReleaseFailedCo
 	return &MarkReleaseFailedResult{OrderID: order.OrderID, Status: order.Status}, nil
 }
 
-func (s *service) publishCreateResult(ctx context.Context, sagaID, orderID, status, operation, reason string) error {
+func (s *service) publishCreateResult(ctx context.Context, sagaID, orderID, gigID, status, operation, reason string) error {
 	payload, err := protojson.Marshal(&orderflowv1.OrderSagaResult{
 		SagaId:     sagaID,
 		OrderId:    orderID,
+		GigId:      strings.TrimSpace(gigID),
 		Status:     status,
 		Error:      reason,
 		Operation:  operation,
