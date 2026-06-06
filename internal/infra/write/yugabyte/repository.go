@@ -133,6 +133,13 @@ WHERE order_id = $1
 ORDER BY sort_order ASC, file_id ASC
 `
 
+const getOrderCountByGigIDQuery = `
+SELECT COUNT(*)
+FROM orders
+WHERE gig_id = $1
+  AND status NOT IN ('draft', 'failed')
+`
+
 const upsertOrderDeliveryQuery = `
 INSERT INTO order_deliveries (order_id, seller_id, delivery_message, created_at)
 VALUES ($1, $2, $3, NOW())
@@ -557,6 +564,14 @@ func (r *repo) GetDeliveryByID(ctx context.Context, orderID string) (*domain.Ord
 		return nil, err
 	}
 	return out, nil
+}
+
+func (r *repo) GetOrderCountByGigID(ctx context.Context, gigID string) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, getOrderCountByGigIDQuery, gigID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *repo) MarkReleasePending(ctx context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {

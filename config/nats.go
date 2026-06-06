@@ -15,6 +15,7 @@ type NATSConfig struct {
 	OrderPreviewProjectionSubject      string `env:"NATS_SUBJECT_ORDER_PREVIEW_PROJECTION_REQUESTED" envDefault:"order.projection.preview"`
 	OrderRequirementsProjectionSubject string `env:"NATS_SUBJECT_ORDER_REQUIREMENTS_PROJECTION_REQUESTED" envDefault:"order.projection.requirements"`
 	OrderDeliveryProjectionSubject     string `env:"NATS_SUBJECT_ORDER_DELIVERY_PROJECTION_REQUESTED" envDefault:"order.projection.delivery"`
+	OrderFundedSubject                 string `env:"NATS_SUBJECT_ORDER_FUNDED" envDefault:"order.funded"`
 	OrderConfirmSubject                string `env:"NATS_SUBJECT_ORDER_CONFIRM" envDefault:"order.confirm"`
 	OrderFailSubject                   string `env:"NATS_SUBJECT_ORDER_FAIL" envDefault:"order.fail"`
 	OrderReleaseRequestSubject         string `env:"NATS_SUBJECT_ORDER_RELEASE_REQUEST" envDefault:"order.release.request"`

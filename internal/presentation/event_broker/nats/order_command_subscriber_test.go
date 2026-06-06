@@ -58,6 +58,9 @@ func (s *commandService) GetOrderRequirementsByID(context.Context, app.GetOrderR
 func (s *commandService) GetOrderDeliveryByID(context.Context, app.GetOrderDeliveryByIDCommand) (*app.OrderDeliveryProjection, error) {
 	return nil, nil
 }
+func (s *commandService) GetOrderCountByGigID(context.Context, string) (*app.OrderCountResult, error) {
+	return nil, nil
+}
 func (s *commandService) MarkPaymentPending(context.Context, app.MarkPaymentPendingCommand) (*app.MarkPaymentPendingResult, error) {
 	return nil, nil
 }

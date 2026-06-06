@@ -202,6 +202,7 @@ type OrderRepository interface {
 	GetLifecycleSnapshot(ctx context.Context, orderID string) (*Order, error)
 	SaveDelivery(ctx context.Context, params SaveDeliveryParams) (*Order, error)
 	GetDeliveryByID(ctx context.Context, orderID string) (*OrderDeliveryProjection, error)
+	GetOrderCountByGigID(ctx context.Context, gigID string) (int64, error)
 	MarkReleasePending(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
 	RequestRevision(ctx context.Context, params RequestRevisionParams) (*Order, error)
 	OpenDispute(ctx context.Context, params OpenDisputeParams) (*Order, error)

@@ -17,6 +17,7 @@ type Service interface {
 	GetOrderPreviewByID(ctx context.Context, cmd GetOrderPreviewByIDCommand) (*OrderPreviewResult, error)
 	GetOrderRequirementsByID(ctx context.Context, cmd GetOrderRequirementsByIDCommand) (*OrderRequirementsResult, error)
 	GetOrderDeliveryByID(ctx context.Context, cmd GetOrderDeliveryByIDCommand) (*OrderDeliveryProjection, error)
+	GetOrderCountByGigID(ctx context.Context, gigID string) (*OrderCountResult, error)
 	MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error)
 	MarkOrderFunded(ctx context.Context, cmd MarkOrderFundedCommand) (*MarkOrderFundedResult, error)
 	MarkPaymentFailed(ctx context.Context, cmd MarkPaymentFailedCommand) (*MarkPaymentFailedResult, error)
@@ -197,6 +198,12 @@ type OrderDeliveryFile struct {
 	FileURL   string
 	SortOrder int32
 	CreatedAt string
+}
+
+// OrderCountResult returns the number of orders associated with one gig.
+type OrderCountResult struct {
+	GigID      string
+	OrderCount int64
 }
 
 // OrderDeliveryProjectionRequest carries the delivery refresh hint published
