@@ -313,6 +313,9 @@ func (s *server) MarkPaymentFailed(ctx context.Context, req *orderwritev1.MarkPa
 func (s *server) GetOrderLifecycleSnapshot(ctx context.Context, req *orderwritev1.GetOrderLifecycleSnapshotRequest) (*orderwritev1.GetOrderLifecycleSnapshotResponse, error) {
 	snap, err := s.svc.GetOrderLifecycleSnapshot(ctx, req.GetOrderId())
 	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			return nil, status.Error(codes.NotFound, domain.ErrOrderNotFound.Error())
+		}
 		return nil, err
 	}
 	return &orderwritev1.GetOrderLifecycleSnapshotResponse{Order: &orderwritev1.OrderSnapshot{
@@ -384,7 +387,7 @@ func (s *server) RequestRevision(ctx context.Context, req *orderwritev1.RequestR
 }
 
 func (s *server) OpenDispute(ctx context.Context, req *orderwritev1.OpenDisputeRequest) (*orderwritev1.OpenDisputeResponse, error) {
-	res, err := s.svc.OpenDispute(ctx, app.OpenDisputeCommand{OrderID: req.GetOrderId(), BuyerID: req.GetBuyerUserId(), Reason: req.GetReason(), RequestedAt: req.GetRequestedAt()})
+	res, err := s.svc.OpenDispute(ctx, app.OpenDisputeCommand{OrderID: req.GetOrderId(), InitiatorID: req.GetBuyerUserId(), DisputeType: req.GetDisputeType(), Reason: req.GetReason(), RequestedAt: req.GetRequestedAt()})
 	if err != nil {
 		return nil, err
 	}
@@ -397,6 +400,14 @@ func (s *server) MarkOrderCompleted(ctx context.Context, req *orderwritev1.MarkO
 		return nil, err
 	}
 	return &orderwritev1.MarkOrderCompletedResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
+}
+
+func (s *server) MarkDisputeResolved(ctx context.Context, req *orderwritev1.MarkDisputeResolvedRequest) (*orderwritev1.MarkDisputeResolvedResponse, error) {
+	res, err := s.svc.MarkDisputeResolved(ctx, app.MarkDisputeResolvedCommand{OrderID: req.GetOrderId(), PaymentReleaseID: req.GetPaymentReleaseId(), OccurredAt: req.GetRequestedAt()})
+	if err != nil {
+		return nil, err
+	}
+	return &orderwritev1.MarkDisputeResolvedResponse{Order: &orderwritev1.OrderSnapshot{OrderId: req.GetOrderId(), Status: res.Status}}, nil
 }
 
 func (s *server) MarkReleaseFailed(ctx context.Context, req *orderwritev1.MarkReleaseFailedRequest) (*orderwritev1.MarkReleaseFailedResponse, error) {

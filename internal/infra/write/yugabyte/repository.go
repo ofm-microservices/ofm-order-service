@@ -172,9 +172,26 @@ SET status = $2, disputed_at = NOW(), updated_at = NOW()
 WHERE order_id = $1
 RETURNING ` + orderColumns
 
+const upsertOrderDisputeQuery = `
+INSERT INTO order_disputes (order_id, buyer_id, initiator_user_id, initiator_role, dispute_type, reason, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
+ON CONFLICT (order_id) DO UPDATE SET
+	buyer_id = EXCLUDED.buyer_id,
+	initiator_user_id = EXCLUDED.initiator_user_id,
+	initiator_role = EXCLUDED.initiator_role,
+	dispute_type = EXCLUDED.dispute_type,
+	reason = EXCLUDED.reason
+`
+
 const markOrderCompletedQuery = `
 UPDATE orders
 SET status = $2, payment_release_id = NULLIF($3, '')::uuid, completed_at = NOW(), updated_at = NOW()
+WHERE order_id = $1
+RETURNING ` + orderColumns
+
+const markDisputeResolvedQuery = `
+UPDATE orders
+SET status = $2, payment_release_id = NULLIF($3, '')::uuid, updated_at = NOW()
 WHERE order_id = $1
 RETURNING ` + orderColumns
 
@@ -595,10 +612,27 @@ func (r *repo) RequestRevision(ctx context.Context, params domain.RequestRevisio
 }
 
 func (r *repo) OpenDispute(ctx context.Context, params domain.OpenDisputeParams) (*domain.Order, error) {
-	if _, err := scanOrder(r.db.QueryRowContext(ctx, openDisputeQuery, params.OrderID, domain.OrderStatusDisputed)); err != nil {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	order, err := scanOrder(tx.QueryRowContext(ctx, openDisputeQuery, params.OrderID, domain.OrderStatusDisputed))
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, domain.ErrOrderNotFound
 		}
+		return nil, err
+	}
+	initiatorRole := "seller"
+	if strings.TrimSpace(params.InitiatorID) == strings.TrimSpace(order.BuyerID) {
+		initiatorRole = "buyer"
+	}
+	if _, err := tx.ExecContext(ctx, upsertOrderDisputeQuery, params.OrderID, order.BuyerID, params.InitiatorID, initiatorRole, params.DisputeType, params.Reason); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return r.GetByID(ctx, params.OrderID)
@@ -606,6 +640,16 @@ func (r *repo) OpenDispute(ctx context.Context, params domain.OpenDisputeParams)
 
 func (r *repo) MarkCompleted(ctx context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
 	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderCompletedQuery, orderID, domain.OrderStatusCompleted, paymentReleaseID)); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return r.GetByID(ctx, orderID)
+}
+
+func (r *repo) MarkDisputeResolved(ctx context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
+	if _, err := scanOrder(r.db.QueryRowContext(ctx, markDisputeResolvedQuery, orderID, domain.OrderStatusDisputeResolved, paymentReleaseID)); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, domain.ErrOrderNotFound
 		}

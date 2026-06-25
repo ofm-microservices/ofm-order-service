@@ -19,9 +19,19 @@ const (
 	OrderStatusReleasePending        = "release_pending"
 	OrderStatusRevisionRequested     = "revision_requested"
 	OrderStatusDisputed              = "disputed"
+	OrderStatusDisputeResolved       = "dispute_resolved"
 	OrderStatusCompleted             = "completed"
 	OrderStatusReleaseFailed         = "release_failed"
 	OrderStatusFailed                = "failed"
+)
+
+const (
+	// DisputeTypeBuyerCancelBeforeDelivery records a buyer cancellation before seller delivery.
+	DisputeTypeBuyerCancelBeforeDelivery = "buyer_cancel_before_delivery"
+	// DisputeTypeSellerCancelBeforeDelivery records a seller cancellation before delivery.
+	DisputeTypeSellerCancelBeforeDelivery = "seller_cancel_before_delivery"
+	// DisputeTypeBuyerDisputeAfterDelivery records a buyer dispute after seller delivery.
+	DisputeTypeBuyerDisputeAfterDelivery = "buyer_dispute_after_delivery"
 )
 
 // Order is the immutable order snapshot plus lifecycle state owned by
@@ -207,6 +217,7 @@ type OrderRepository interface {
 	RequestRevision(ctx context.Context, params RequestRevisionParams) (*Order, error)
 	OpenDispute(ctx context.Context, params OpenDisputeParams) (*Order, error)
 	MarkCompleted(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
+	MarkDisputeResolved(ctx context.Context, orderID, paymentReleaseID string) (*Order, error)
 	MarkReleaseFailed(ctx context.Context, orderID, reason string) (*Order, error)
 }
 
@@ -243,10 +254,11 @@ type RequestRevisionParams struct {
 	RequestedAt time.Time
 }
 
-// OpenDisputeParams stores one buyer dispute transition.
+// OpenDisputeParams stores one dispute transition initiated by an order participant.
 type OpenDisputeParams struct {
 	OrderID     string
-	BuyerID     string
+	InitiatorID string
+	DisputeType string
 	Reason      string
 	RequestedAt time.Time
 }

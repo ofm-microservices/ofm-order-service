@@ -100,6 +100,9 @@ func (s *commandService) OpenDispute(context.Context, app.OpenDisputeCommand) (*
 func (s *commandService) MarkOrderCompleted(context.Context, app.MarkOrderCompletedCommand) (*app.MarkOrderCompletedResult, error) {
 	return nil, nil
 }
+func (s *commandService) MarkDisputeResolved(context.Context, app.MarkDisputeResolvedCommand) (*app.MarkDisputeResolvedResult, error) {
+	return nil, nil
+}
 func (s *commandService) MarkReleaseFailed(context.Context, app.MarkReleaseFailedCommand) (*app.MarkReleaseFailedResult, error) {
 	return nil, nil
 }

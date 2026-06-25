@@ -178,6 +178,10 @@ func (r *testOrders) MarkCompleted(_ context.Context, orderID, paymentReleaseID 
 	return &domain.Order{OrderID: orderID, PaymentReleaseID: paymentReleaseID, Status: domain.OrderStatusCompleted}, nil
 }
 
+func (r *testOrders) MarkDisputeResolved(_ context.Context, orderID, paymentReleaseID string) (*domain.Order, error) {
+	return &domain.Order{OrderID: orderID, PaymentReleaseID: paymentReleaseID, Status: domain.OrderStatusDisputeResolved}, nil
+}
+
 func (r *testOrders) MarkReleaseFailed(_ context.Context, orderID, reason string) (*domain.Order, error) {
 	return &domain.Order{OrderID: orderID, FailureReason: reason, Status: domain.OrderStatusReleaseFailed}, nil
 }
