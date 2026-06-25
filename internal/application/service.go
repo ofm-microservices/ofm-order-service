@@ -583,7 +583,8 @@ func (s *service) RequestRevision(ctx context.Context, cmd RequestRevisionComman
 func (s *service) OpenDispute(ctx context.Context, cmd OpenDisputeCommand) (*OpenDisputeResult, error) {
 	order, err := s.orders.OpenDispute(ctx, domain.OpenDisputeParams{
 		OrderID:     cmd.OrderID,
-		BuyerID:     cmd.BuyerID,
+		InitiatorID: cmd.InitiatorID,
+		DisputeType: cmd.DisputeType,
 		Reason:      cmd.Reason,
 		RequestedAt: parseTimeOrNow(cmd.RequestedAt),
 	})
@@ -605,6 +606,17 @@ func (s *service) MarkOrderCompleted(ctx context.Context, cmd MarkOrderCompleted
 		return nil, err
 	}
 	return &MarkOrderCompletedResult{OrderID: order.OrderID, Status: order.Status}, nil
+}
+
+func (s *service) MarkDisputeResolved(ctx context.Context, cmd MarkDisputeResolvedCommand) (*MarkDisputeResolvedResult, error) {
+	order, err := s.orders.MarkDisputeResolved(ctx, cmd.OrderID, cmd.PaymentReleaseID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.refreshOrderProjection(ctx, order); err != nil {
+		return nil, err
+	}
+	return &MarkDisputeResolvedResult{OrderID: order.OrderID, Status: order.Status}, nil
 }
 
 func (s *service) MarkReleaseFailed(ctx context.Context, cmd MarkReleaseFailedCommand) (*MarkReleaseFailedResult, error) {

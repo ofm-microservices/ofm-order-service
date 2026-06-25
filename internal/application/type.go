@@ -31,6 +31,7 @@ type Service interface {
 	RequestRevision(ctx context.Context, cmd RequestRevisionCommand) (*RequestRevisionResult, error)
 	OpenDispute(ctx context.Context, cmd OpenDisputeCommand) (*OpenDisputeResult, error)
 	MarkOrderCompleted(ctx context.Context, cmd MarkOrderCompletedCommand) (*MarkOrderCompletedResult, error)
+	MarkDisputeResolved(ctx context.Context, cmd MarkDisputeResolvedCommand) (*MarkDisputeResolvedResult, error)
 	MarkReleaseFailed(ctx context.Context, cmd MarkReleaseFailedCommand) (*MarkReleaseFailedResult, error)
 }
 
@@ -411,10 +412,11 @@ type RequestRevisionResult struct {
 	Status  string
 }
 
-// OpenDisputeCommand stores buyer dispute details.
+// OpenDisputeCommand stores dispute details from the participant opening it.
 type OpenDisputeCommand struct {
 	OrderID     string
-	BuyerID     string
+	InitiatorID string
+	DisputeType string
 	Reason      string
 	RequestedAt string
 }
@@ -434,6 +436,19 @@ type MarkOrderCompletedCommand struct {
 
 // MarkOrderCompletedResult reports the updated order state.
 type MarkOrderCompletedResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkDisputeResolvedCommand records a final admin dispute settlement.
+type MarkDisputeResolvedCommand struct {
+	OrderID          string
+	PaymentReleaseID string
+	OccurredAt       string
+}
+
+// MarkDisputeResolvedResult reports the dispute-resolved order state.
+type MarkDisputeResolvedResult struct {
 	OrderID string
 	Status  string
 }
