@@ -15,14 +15,35 @@ import (
 // PresentationModule wires JetStream subscribers into the FX lifecycle.
 var PresentationModule = fx.Options(
 	fx.Provide(ProvideOrderCommandSubscriber),
+	fx.Provide(ProvideOrderPreviewProjectionSubscriber),
+	fx.Provide(ProvideOrderRequirementsProjectionSubscriber),
+	fx.Provide(ProvideOrderDeliveryProjectionSubscriber),
 	fx.Provide(ProvideGRPCServer),
 	fx.Invoke(InvokeSubscribeOrderCommands),
+	fx.Invoke(InvokeSubscribeOrderPreviewProjection),
+	fx.Invoke(InvokeSubscribeOrderRequirementsProjection),
+	fx.Invoke(InvokeSubscribeOrderDeliveryProjection),
 	fx.Invoke(InvokeRunGRPCServer),
 )
 
 // ProvideOrderCommandSubscriber constructs the order command subscriber.
 func ProvideOrderCommandSubscriber(broker eventbroker.EventBroker, service app.Service, cfg *config.Config) (events.OrderCommandSubscriber, error) {
 	return events.NewOrderCommandSubscriber(broker, service, cfg.NATS)
+}
+
+// ProvideOrderPreviewProjectionSubscriber constructs the order preview projection consumer.
+func ProvideOrderPreviewProjectionSubscriber(broker eventbroker.EventBroker, readRepo app.OrderReadRepository, cfg *config.Config, lg logging.Logger) (events.OrderPreviewProjectionSubscriber, error) {
+	return events.NewOrderPreviewProjectionSubscriber(broker, readRepo, cfg.NATS, lg)
+}
+
+// ProvideOrderRequirementsProjectionSubscriber constructs the order requirements projection consumer.
+func ProvideOrderRequirementsProjectionSubscriber(broker eventbroker.EventBroker, readRepo app.OrderReadRepository, cfg *config.Config, lg logging.Logger) (events.OrderRequirementsProjectionSubscriber, error) {
+	return events.NewOrderRequirementsProjectionSubscriber(broker, readRepo, cfg.NATS, lg)
+}
+
+// ProvideOrderDeliveryProjectionSubscriber constructs the order delivery projection consumer.
+func ProvideOrderDeliveryProjectionSubscriber(broker eventbroker.EventBroker, service app.Service, readRepo app.OrderReadRepository, cfg *config.Config, lg logging.Logger) (events.OrderDeliveryProjectionSubscriber, error) {
+	return events.NewOrderDeliveryProjectionSubscriber(broker, service, readRepo, cfg.NATS, lg)
 }
 
 // InvokeSubscribeOrderCommands starts the order command consumers with the FX
@@ -39,6 +60,75 @@ func InvokeSubscribeOrderCommands(lc fx.Lifecycle, subscriber events.OrderComman
 				return err
 			}
 			lg.Info("order-service initialized", logging.String("env", cfg.App.Env))
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			if cancel != nil {
+				cancel()
+			}
+			return nil
+		},
+	})
+}
+
+// InvokeSubscribeOrderPreviewProjection starts the order preview projection consumer.
+func InvokeSubscribeOrderPreviewProjection(lc fx.Lifecycle, subscriber events.OrderPreviewProjectionSubscriber, lg logging.Logger) {
+	var cancel context.CancelFunc
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			runCtx, runCancel := context.WithCancel(context.Background())
+			cancel = runCancel
+			if err := subscriber.Subscribe(runCtx); err != nil {
+				lg.Error("subscribe to order preview projection failed", logging.Err(err))
+				cancel()
+				return err
+			}
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			if cancel != nil {
+				cancel()
+			}
+			return nil
+		},
+	})
+}
+
+// InvokeSubscribeOrderRequirementsProjection starts the order requirements projection consumer.
+func InvokeSubscribeOrderRequirementsProjection(lc fx.Lifecycle, subscriber events.OrderRequirementsProjectionSubscriber, lg logging.Logger) {
+	var cancel context.CancelFunc
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			runCtx, runCancel := context.WithCancel(context.Background())
+			cancel = runCancel
+			if err := subscriber.Subscribe(runCtx); err != nil {
+				lg.Error("subscribe to order requirements projection failed", logging.Err(err))
+				cancel()
+				return err
+			}
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			if cancel != nil {
+				cancel()
+			}
+			return nil
+		},
+	})
+}
+
+// InvokeSubscribeOrderDeliveryProjection starts the order delivery projection consumer.
+func InvokeSubscribeOrderDeliveryProjection(lc fx.Lifecycle, subscriber events.OrderDeliveryProjectionSubscriber, lg logging.Logger) {
+	var cancel context.CancelFunc
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			runCtx, runCancel := context.WithCancel(context.Background())
+			cancel = runCancel
+			if err := subscriber.Subscribe(runCtx); err != nil {
+				lg.Error("subscribe to order delivery projection failed", logging.Err(err))
+				cancel()
+				return err
+			}
 			return nil
 		},
 		OnStop: func(context.Context) error {

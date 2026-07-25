@@ -14,12 +14,25 @@ type Service interface {
 	Fail(ctx context.Context, cmd FailOrderCommand) error
 	CreateDraftOrder(ctx context.Context, cmd CreateDraftOrderCommand) (*CreateDraftOrderResult, error)
 	GetOrderPaymentSnapshot(ctx context.Context, orderID string) (*OrderPaymentSnapshot, error)
+	GetOrderPreviewByID(ctx context.Context, cmd GetOrderPreviewByIDCommand) (*OrderPreviewResult, error)
+	GetOrderRequirementsByID(ctx context.Context, cmd GetOrderRequirementsByIDCommand) (*OrderRequirementsResult, error)
+	GetOrderDeliveryByID(ctx context.Context, cmd GetOrderDeliveryByIDCommand) (*OrderDeliveryProjection, error)
+	GetOrderCountByGigID(ctx context.Context, gigID string) (*OrderCountResult, error)
 	MarkPaymentPending(ctx context.Context, cmd MarkPaymentPendingCommand) (*MarkPaymentPendingResult, error)
 	MarkOrderFunded(ctx context.Context, cmd MarkOrderFundedCommand) (*MarkOrderFundedResult, error)
 	MarkPaymentFailed(ctx context.Context, cmd MarkPaymentFailedCommand) (*MarkPaymentFailedResult, error)
 	SaveRequirementAnswers(ctx context.Context, cmd SaveRequirementAnswersCommand) (*SaveRequirementAnswersResult, error)
 	SaveBuyerInitialMessage(ctx context.Context, cmd SaveBuyerInitialMessageCommand) (*SaveBuyerInitialMessageResult, error)
 	AttachFile(ctx context.Context, cmd AttachFileCommand) (*AttachFileResult, error)
+	GetOrderLifecycleSnapshot(ctx context.Context, orderID string) (*OrderLifecycleSnapshot, error)
+	SaveDelivery(ctx context.Context, cmd SaveDeliveryCommand) (*SaveDeliveryResult, error)
+	BuildOrderDeliveryProjection(ctx context.Context, orderID string) (*OrderDeliveryProjection, error)
+	MarkReleasePending(ctx context.Context, cmd MarkReleasePendingCommand) (*MarkReleasePendingResult, error)
+	RequestRevision(ctx context.Context, cmd RequestRevisionCommand) (*RequestRevisionResult, error)
+	OpenDispute(ctx context.Context, cmd OpenDisputeCommand) (*OpenDisputeResult, error)
+	MarkOrderCompleted(ctx context.Context, cmd MarkOrderCompletedCommand) (*MarkOrderCompletedResult, error)
+	MarkDisputeResolved(ctx context.Context, cmd MarkDisputeResolvedCommand) (*MarkDisputeResolvedResult, error)
+	MarkReleaseFailed(ctx context.Context, cmd MarkReleaseFailedCommand) (*MarkReleaseFailedResult, error)
 }
 
 // EventBroker abstracts the NATS JetStream broker implementation.
@@ -37,7 +50,15 @@ type Logger = logging.Logger
 
 // Config carries application-level subject names owned by order-service.
 type Config struct {
-	OrderCreateResultSubject string
+	OrderCreateResultSubject           string
+	OrderPreviewProjectionSubject      string
+	OrderRequirementsProjectionSubject string
+	OrderDeliveryProjectionSubject     string
+}
+
+// FileServiceConfig carries the upstream file-service connection settings.
+type FileServiceConfig struct {
+	Address string
 }
 
 // OrderRepository aliases the domain write-model contract.
@@ -46,14 +67,166 @@ type OrderRepository = domain.OrderRepository
 // OrderReadRepository aliases the domain read-model contract.
 type OrderReadRepository = domain.OrderReadRepository
 
+// FileService resolves public file URLs for order snapshot media.
+type FileService interface {
+	GetFileURL(ctx context.Context, fileID string) (string, error)
+	Close() error
+}
+
+// UserService resolves public user snapshots for order-page projections.
+type UserService interface {
+	GetUserPreviewByIDNoCache(ctx context.Context, userID string) (*UserPreview, error)
+	Close() error
+}
+
+// UserPreview returns the public user fields projected into an order page.
+type UserPreview struct {
+	UserID      string
+	Username    string
+	DisplayName string
+	AvatarURL   string
+}
+
+// GetOrderPreviewByIDCommand carries the authenticated user context for the
+// user-scoped order preview lookup.
+type GetOrderPreviewByIDCommand struct {
+	OrderID string
+	UserID  string
+	Role    string
+}
+
+// GetOrderRequirementsByIDCommand carries the authenticated user context for
+// the user-scoped order requirements lookup.
+type GetOrderRequirementsByIDCommand struct {
+	OrderID string
+	UserID  string
+}
+
+// GetOrderDeliveryByIDCommand carries the authenticated user context for the
+// user-scoped order delivery lookup.
+type GetOrderDeliveryByIDCommand struct {
+	OrderID string
+	UserID  string
+}
+
+// OrderPreviewResult returns the minimal order preview payload.
+type OrderPreviewResult struct {
+	Order      *OrderPreview
+	Gig        *OrderPreviewGig
+	Customer   *OrderPreviewUser
+	Freelancer *OrderPreviewUser
+}
+
+// OrderPreview describes the order header returned by the preview endpoint.
+type OrderPreview struct {
+	OrderID   string
+	CreatedAt string
+	Status    string
+}
+
+// OrderPreviewGig describes the gig snapshot returned alongside the order preview.
+type OrderPreviewGig struct {
+	GigID               string
+	Title               string
+	PictureFileID       string
+	PictureURL          string
+	PackageID           string
+	PackageTitle        string
+	PriceCents          int64
+	Currency            string
+	Description         string
+	PackageDeliveryDays int32
+}
+
+// OrderPreviewUser describes one participant snapshot returned with the order preview.
+type OrderPreviewUser struct {
+	UserID      string
+	Username    string
+	DisplayName string
+	AvatarURL   string
+}
+
+// OrderRequirementQuestion stores one requirements question snapshot.
+type OrderRequirementQuestion struct {
+	QuestionID string
+	Text       string
+	Type       string
+	Required   bool
+	SortOrder  int32
+}
+
+// OrderRequirementAnswer stores one optional buyer answer snapshot.
+type OrderRequirementAnswer struct {
+	Value string
+}
+
+// OrderRequirementQuestionAnswer stores a question and its optional answer.
+type OrderRequirementQuestionAnswer struct {
+	Question *OrderRequirementQuestion
+	Answer   *OrderRequirementAnswer
+}
+
+// OrderRequirementCustomerMessage stores the buyer message shown on the
+// requirements page.
+type OrderRequirementCustomerMessage struct {
+	Message   string
+	CreatedAt string
+	UpdatedAt string
+}
+
+// OrderRequirementsResult returns the public order requirements payload.
+type OrderRequirementsResult struct {
+	QuestionsAnswers []OrderRequirementQuestionAnswer
+	CustomerMessage  *OrderRequirementCustomerMessage
+}
+
+// OrderDeliveryProjection returns the public delivery payload projected into Redis.
+type OrderDeliveryProjection struct {
+	OrderDelivery      *OrderDelivery
+	OrderDeliveryFiles []OrderDeliveryFile
+}
+
+// OrderDelivery stores one seller delivery snapshot in the application layer.
+type OrderDelivery struct {
+	SellerID        string
+	DeliveryMessage string
+	CreatedAt       string
+}
+
+// OrderDeliveryFile stores one delivery attachment snapshot in the application layer.
+type OrderDeliveryFile struct {
+	FileID    string
+	FileURL   string
+	SortOrder int32
+	CreatedAt string
+}
+
+// OrderCountResult returns the number of orders associated with one gig.
+type OrderCountResult struct {
+	GigID      string
+	OrderCount int64
+}
+
+// OrderDeliveryProjectionRequest carries the delivery refresh hint published
+// after the canonical delivery write commits.
+type OrderDeliveryProjectionRequest struct {
+	OrderID         string   `json:"order_id"`
+	SellerID        string   `json:"seller_id"`
+	DeliveryMessage string   `json:"delivery_message"`
+	AttachmentIDs   []string `json:"attachment_ids"`
+	OccurredAt      string   `json:"occurred_at"`
+}
+
 // CreateOrderCommand carries the immutable order snapshot from the saga.
 type CreateOrderCommand struct {
 	SagaID              string
 	OrderID             string
 	BuyerID             string
 	SellerID            string
+	SellerUsername      string
 	GigID               string
 	GigTitle            string
+	PictureFileID       string
 	PackageID           string
 	PackageTier         string
 	PackageDescription  string
@@ -86,8 +259,10 @@ type CreateDraftOrderCommand struct {
 	OrderID             string
 	BuyerID             string
 	SellerID            string
+	SellerUsername      string
 	GigID               string
 	GigTitle            string
+	PictureFileID       string
 	PackageID           string
 	PackageTier         string
 	PackageDescription  string
@@ -117,15 +292,43 @@ type CreateDraftOrderResult struct {
 
 // OrderPaymentSnapshot returns the current immutable payment-facing snapshot.
 type OrderPaymentSnapshot struct {
-	OrderID      string
-	SagaID       string
-	BuyerID      string
-	SellerID     string
-	GigTitle     string
-	PackageTitle string
-	PriceCents   int64
-	Currency     string
-	Status       string
+	OrderID               string
+	SagaID                string
+	BuyerID               string
+	SellerID              string
+	SellerUsername        string
+	GigTitle              string
+	PackageTitle          string
+	PriceCents            int64
+	Currency              string
+	Status                string
+	RequirementsCompleted bool
+	MessageCompleted      bool
+}
+
+// OrderLifecycleSnapshot returns the state needed by the saga for delivery and completion.
+type OrderLifecycleSnapshot struct {
+	OrderID               string
+	SagaID                string
+	BuyerID               string
+	SellerID              string
+	SellerUsername        string
+	GigID                 string
+	GigTitle              string
+	PackageID             string
+	PackageTitle          string
+	PackageDescription    string
+	PriceCents            int64
+	Currency              string
+	Status                string
+	RevisionCountSnapshot int32
+	RevisionCountUsed     int32
+	BuyerResponseDeadline string
+	PaymentIntentID       string
+	PaymentReleaseID      string
+	DeliveredAt           string
+	CompletedAt           string
+	DisputedAt            string
 }
 
 // MarkPaymentPendingCommand records a checkout session against the order.
@@ -163,6 +366,102 @@ type MarkPaymentFailedCommand struct {
 
 // MarkPaymentFailedResult reports the updated order state.
 type MarkPaymentFailedResult struct {
+	OrderID string
+	Status  string
+}
+
+// SaveDeliveryCommand stores seller delivery details.
+type SaveDeliveryCommand struct {
+	OrderID       string
+	SellerID      string
+	Message       string
+	AttachmentIDs []string
+	RequestedAt   string
+}
+
+// SaveDeliveryResult reports the updated order state.
+type SaveDeliveryResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkReleasePendingCommand marks the order as waiting payout release.
+type MarkReleasePendingCommand struct {
+	OrderID          string
+	PaymentReleaseID string
+	RequestedAt      string
+}
+
+// MarkReleasePendingResult reports the updated order state.
+type MarkReleasePendingResult struct {
+	OrderID string
+	Status  string
+}
+
+// RequestRevisionCommand stores buyer revision request details.
+type RequestRevisionCommand struct {
+	OrderID     string
+	BuyerID     string
+	Reason      string
+	RequestedAt string
+}
+
+// RequestRevisionResult reports the updated order state.
+type RequestRevisionResult struct {
+	OrderID string
+	Status  string
+}
+
+// OpenDisputeCommand stores dispute details from the participant opening it.
+type OpenDisputeCommand struct {
+	OrderID     string
+	InitiatorID string
+	DisputeType string
+	Reason      string
+	RequestedAt string
+}
+
+// OpenDisputeResult reports the updated order state.
+type OpenDisputeResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkOrderCompletedCommand records the final payout release.
+type MarkOrderCompletedCommand struct {
+	OrderID          string
+	PaymentReleaseID string
+	OccurredAt       string
+}
+
+// MarkOrderCompletedResult reports the updated order state.
+type MarkOrderCompletedResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkDisputeResolvedCommand records a final admin dispute settlement.
+type MarkDisputeResolvedCommand struct {
+	OrderID          string
+	PaymentReleaseID string
+	OccurredAt       string
+}
+
+// MarkDisputeResolvedResult reports the dispute-resolved order state.
+type MarkDisputeResolvedResult struct {
+	OrderID string
+	Status  string
+}
+
+// MarkReleaseFailedCommand stores a failed payout release.
+type MarkReleaseFailedCommand struct {
+	OrderID    string
+	Reason     string
+	OccurredAt string
+}
+
+// MarkReleaseFailedResult reports the updated order state.
+type MarkReleaseFailedResult struct {
 	OrderID string
 	Status  string
 }

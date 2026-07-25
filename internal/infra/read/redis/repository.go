@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
@@ -32,6 +33,12 @@ func New(rdb *redis.Client, log logging.Logger) (domain.OrderReadRepository, err
 // OrderKey builds the Redis key used for order projections.
 func OrderKey(orderID string) string { return fmt.Sprintf("order:%s", orderID) }
 
+// RequirementsKey builds the Redis key used for order requirements projections.
+func RequirementsKey(orderID string) string { return fmt.Sprintf("requirements:%s", orderID) }
+
+// DeliveryKey builds the Redis key used for order delivery projections.
+func DeliveryKey(orderID string) string { return fmt.Sprintf("order_delivery:%s", orderID) }
+
 func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 	started := time.Now()
 	status := "success"
@@ -39,24 +46,7 @@ func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 	if order == nil {
 		return ErrNilOrder
 	}
-	cache := model.OrderCache{
-		OrderID:             order.OrderID,
-		SagaID:              order.SagaID,
-		BuyerID:             order.BuyerID,
-		SellerID:            order.SellerID,
-		GigID:               order.GigID,
-		GigTitle:            order.GigTitle,
-		PackageID:           order.PackageID,
-		PackageTier:         order.PackageTier,
-		PackageDescription:  order.PackageDescription,
-		PackageDeliveryDays: order.PackageDeliveryDays,
-		PriceCents:          order.PriceCents,
-		Currency:            order.Currency,
-		Status:              order.Status,
-		PaymentIntentID:     order.PaymentIntentID,
-		CreatedAt:           order.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt:           order.UpdatedAt.Format(time.RFC3339Nano),
-	}
+	cache := mapDomainToCache(order)
 	payload, err := json.Marshal(cache)
 	if err != nil {
 		return err
@@ -67,4 +57,173 @@ func (r *repo) Upsert(ctx context.Context, order *domain.Order) error {
 		return err
 	}
 	return nil
+}
+
+func (r *repo) UpsertRequirements(ctx context.Context, orderID string, requirements *domain.OrderRequirements) error {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("set", "requirements", status, time.Since(started)) }()
+	if requirements == nil {
+		return ErrNilOrder
+	}
+	cache := mapRequirementsToCache(requirements)
+	payload, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	if err := r.rdb.Set(ctx, RequirementsKey(orderID), payload, 0).Err(); err != nil {
+		status = "error"
+		r.log.Error("upsert requirements cache failed", logging.Operation("redis.requirements.upsert"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return err
+	}
+	return nil
+}
+
+func (r *repo) UpsertDelivery(ctx context.Context, orderID string, delivery *domain.OrderDeliveryProjection) error {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("set", "delivery", status, time.Since(started)) }()
+	if delivery == nil {
+		return ErrNilOrder
+	}
+	cache := mapDeliveryToCache(delivery)
+	payload, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	if err := r.rdb.Set(ctx, DeliveryKey(orderID), payload, 0).Err(); err != nil {
+		status = "error"
+		r.log.Error("upsert delivery cache failed", logging.Operation("redis.delivery.upsert"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return err
+	}
+	return nil
+}
+
+func (r *repo) GetDeliveryByID(ctx context.Context, orderID string) (*domain.OrderDeliveryProjection, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "delivery", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, DeliveryKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get delivery cache failed", logging.Operation("redis.delivery.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.DeliveryCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		status = "error"
+		r.log.Error("unmarshal delivery cache failed", logging.Operation("redis.delivery.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	if strings.TrimSpace(cache.OrderDelivery.DeliveryMessage) == "" && strings.TrimSpace(cache.OrderDelivery.CreatedAt) == "" && len(cache.OrderDeliveryFiles) == 0 {
+		return nil, domain.ErrOrderNotFound
+	}
+	return mapDeliveryCacheToDomain(orderID, cache), nil
+}
+
+func (r *repo) GetByID(ctx context.Context, orderID string) (*domain.Order, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "order", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, OrderKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get order cache failed", logging.Operation("redis.order.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.OrderCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr != nil {
+			status = "error"
+			r.log.Error("unmarshal order cache failed", logging.Operation("redis.order.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+			return nil, err
+		}
+		return mapLegacyCacheToDomain(legacy), nil
+	}
+	if strings.TrimSpace(cache.Order.OrderID) == "" {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr == nil && strings.TrimSpace(legacy.OrderID) != "" {
+			return mapLegacyCacheToDomain(legacy), nil
+		}
+		return nil, domain.ErrOrderNotFound
+	}
+	return mapCacheToDomain(cache), nil
+}
+
+func (r *repo) GetPreviewByID(ctx context.Context, orderID string) (*domain.OrderPreview, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "order_preview", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, OrderKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get order preview cache failed", logging.Operation("redis.order_preview.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.OrderCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr != nil {
+			status = "error"
+			r.log.Error("unmarshal order preview cache failed", logging.Operation("redis.order_preview.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+			return nil, err
+		}
+		return &domain.OrderPreview{
+			OrderID:   legacy.OrderID,
+			CreatedAt: parseTimeOrZero(legacy.CreatedAt),
+			Status:    legacy.Status,
+		}, nil
+	}
+	if strings.TrimSpace(cache.Order.OrderID) == "" {
+		var legacy model.LegacyOrderCache
+		if legacyErr := json.Unmarshal(raw, &legacy); legacyErr == nil && strings.TrimSpace(legacy.OrderID) != "" {
+			return &domain.OrderPreview{
+				OrderID:   legacy.OrderID,
+				CreatedAt: parseTimeOrZero(legacy.CreatedAt),
+				Status:    legacy.Status,
+			}, nil
+		}
+		return nil, domain.ErrOrderNotFound
+	}
+	return &domain.OrderPreview{
+		OrderID:   cache.Order.OrderID,
+		CreatedAt: parseTimeOrZero(cache.Order.CreatedAt),
+		Status:    cache.Order.Status,
+	}, nil
+}
+
+func (r *repo) GetRequirementsByID(ctx context.Context, orderID string) (*domain.OrderRequirements, error) {
+	started := time.Now()
+	status := "success"
+	defer func() { metrics.Global().ObserveRedis("get", "requirements", status, time.Since(started)) }()
+
+	raw, err := r.rdb.Get(ctx, RequirementsKey(orderID)).Bytes()
+	if err != nil {
+		status = "error"
+		if err == redis.Nil {
+			return nil, domain.ErrOrderNotFound
+		}
+		r.log.Error("get requirements cache failed", logging.Operation("redis.requirements.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	var cache model.RequirementsCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		status = "error"
+		r.log.Error("unmarshal requirements cache failed", logging.Operation("redis.requirements.get"), logging.DurationMS(time.Since(started)), logging.String("order_id", orderID), logging.Err(err))
+		return nil, err
+	}
+	return mapRequirementsCacheToDomain(orderID, cache), nil
 }

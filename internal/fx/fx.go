@@ -12,6 +12,8 @@ var Module = fx.Options(
 	StorageModule,
 	MessagingModule,
 	RepoModule,
+	FileClientModule,
+	UserClientModule,
 	ServiceModule,
 	PresentationModule,
 )
