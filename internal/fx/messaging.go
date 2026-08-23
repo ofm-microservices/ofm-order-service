@@ -3,35 +3,42 @@ package appfx
 import (
 	"context"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
 	"go.uber.org/fx"
 	"order-service/config"
 	eventbroker "order-service/internal/presentation/event_broker"
-	broker "order-service/internal/presentation/event_broker/nats"
-	natsbootstrap "order-service/pkg/messaging/nats"
+	broker "order-service/internal/presentation/event_broker/kafka"
 )
 
-// MessagingModule wires JetStream bootstrap and broker runtime into
-// order-service.
+// MessagingModule wires the Kafka event broker into order-service.
 var MessagingModule = fx.Options(
-	fx.Invoke(InvokeEnsureStream),
-	fx.Provide(ProvideEventBroker),
+	fx.Provide(ProvideEventBrokerWithDB),
 )
 
-// InvokeEnsureStream ensures the JetStream streams order-service depends on.
-func InvokeEnsureStream(cfg *config.Config, lg logging.Logger) error {
-	if err := natsbootstrap.EnsureStream(cfg.NATS, lg); err != nil {
-		lg.Error("bootstrap jetstream resources failed", logging.Err(err))
-		return err
-	}
-	return nil
+// InvokeEnsureStream is retained as a compatibility no-op; Kafka topics are
+// provisioned by the broker/runtime rather than JetStream bootstrap.
+func InvokeEnsureStream(*config.Config, logging.Logger) error { return nil }
+
+// ProvideEventBroker constructs the concrete Kafka event broker.
+func ProvideEventBroker(lc fx.Lifecycle, cfg *config.Config, lg logging.Logger) (eventbroker.EventBroker, error) {
+	return provideEventBroker(lc, cfg, nil, lg)
 }
 
-// ProvideEventBroker constructs the concrete JetStream event broker.
-func ProvideEventBroker(lc fx.Lifecycle, cfg *config.Config, lg logging.Logger) (eventbroker.EventBroker, error) {
-	eventBroker, err := broker.NewBroker(cfg.NATS, lg)
+// ProvideEventBrokerWithDB enables durable event claims in production wiring.
+func ProvideEventBrokerWithDB(lc fx.Lifecycle, cfg *config.Config, db *sqlx.DB, lg logging.Logger) (eventbroker.EventBroker, error) {
+	return provideEventBroker(lc, cfg, db, lg)
+}
+func provideEventBroker(lc fx.Lifecycle, cfg *config.Config, db *sqlx.DB, lg logging.Logger) (eventbroker.EventBroker, error) {
+	var eventBroker eventbroker.EventBroker
+	var err error
+	if db == nil {
+		eventBroker, err = broker.NewBroker(cfg.Kafka)
+	} else {
+		eventBroker, err = broker.NewBrokerWithDB(cfg.Kafka, db)
+	}
 	if err != nil {
-		lg.Error("connect nats failed", logging.Err(err))
+		lg.Error("connect kafka failed", logging.Err(err))
 		return nil, err
 	}
 	lc.Append(fx.Hook{OnStop: func(context.Context) error { eventBroker.Close(); return nil }})

@@ -1,0 +1,13 @@
+DROP TRIGGER IF EXISTS orders_outbox ON orders;
+DROP TRIGGER IF EXISTS order_gig_snapshot_outbox ON order_gig_snapshot;
+DROP TRIGGER IF EXISTS order_question_snapshots_outbox ON order_question_snapshots;
+DROP TRIGGER IF EXISTS order_requirement_answers_outbox ON order_requirement_answers;
+DROP TRIGGER IF EXISTS order_buyer_messages_outbox ON order_buyer_messages;
+DROP TRIGGER IF EXISTS order_attachments_outbox ON order_attachments;
+DROP TRIGGER IF EXISTS order_checkout_sessions_outbox ON order_checkout_sessions;
+DROP TRIGGER IF EXISTS order_deliveries_outbox ON order_deliveries;
+DROP TRIGGER IF EXISTS order_revision_requests_outbox ON order_revision_requests;
+DROP TRIGGER IF EXISTS order_disputes_outbox ON order_disputes;
+DROP TRIGGER IF EXISTS order_delivery_files_outbox ON order_delivery_files;
+DROP FUNCTION IF EXISTS capture_order_outbox_event();
+DROP TABLE IF EXISTS outbox_events;
