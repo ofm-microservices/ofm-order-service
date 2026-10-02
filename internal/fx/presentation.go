@@ -2,6 +2,7 @@ package appfx
 
 import (
 	"context"
+	"time"
 
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
 	"go.uber.org/fx"
@@ -18,13 +19,49 @@ var PresentationModule = fx.Options(
 	fx.Provide(ProvideOrderPreviewProjectionSubscriber),
 	fx.Provide(ProvideOrderRequirementsProjectionSubscriber),
 	fx.Provide(ProvideOrderDeliveryProjectionSubscriber),
+	fx.Provide(ProvideOrderRecoverySubscriber),
 	fx.Provide(ProvideGRPCServer),
 	fx.Invoke(InvokeSubscribeOrderCommands),
 	fx.Invoke(InvokeSubscribeOrderPreviewProjection),
 	fx.Invoke(InvokeSubscribeOrderRequirementsProjection),
 	fx.Invoke(InvokeSubscribeOrderDeliveryProjection),
+	fx.Invoke(InvokeSubscribeOrderRecovery),
 	fx.Invoke(InvokeRunGRPCServer),
 )
+
+// ProvideOrderRecoverySubscriber constructs the order-owned recovery consumer.
+func ProvideOrderRecoverySubscriber(broker eventbroker.EventBroker, service app.Service, cfg *config.Config, lg logging.Logger) (events.RecoverySubscriber, error) {
+	return events.NewRecoverySubscriber(broker, service, cfg.Kafka, lg)
+}
+
+// InvokeSubscribeOrderRecovery starts the order recovery consumer.
+func InvokeSubscribeOrderRecovery(lc fx.Lifecycle, subscriber events.RecoverySubscriber, lg logging.Logger) {
+	var cancel context.CancelFunc
+	lc.Append(fx.Hook{OnStart: func(context.Context) error {
+		ctx, stop := context.WithCancel(context.Background())
+		cancel = stop
+		go func() {
+			for ctx.Err() == nil {
+				if err := subscriber.Subscribe(ctx); err != nil && ctx.Err() == nil {
+					lg.Error("order recovery consumer stopped; retrying", logging.Err(err))
+					timer := time.NewTimer(time.Second)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						return
+					case <-timer.C:
+					}
+				}
+			}
+		}()
+		return nil
+	}, OnStop: func(context.Context) error {
+		if cancel != nil {
+			cancel()
+		}
+		return nil
+	}})
+}
 
 // ProvideOrderCommandSubscriber constructs the order command subscriber.
 func ProvideOrderCommandSubscriber(broker eventbroker.EventBroker, service app.Service, cfg *config.Config) (events.OrderCommandSubscriber, error) {

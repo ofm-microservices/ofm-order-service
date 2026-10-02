@@ -1,11 +1,11 @@
-package yugabyte
+package postgres
 
 import (
 	"errors"
 	"testing"
 	"time"
 
-	"order-service/internal/infra/write/yugabyte/model"
+	"order-service/internal/infra/write/postgres/model"
 )
 
 type scanStub struct {

@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// OrderRow is the Yugabyte persistence model for orders.
+// OrderRow is the PostgreSQL persistence model for orders.
 type OrderRow struct {
 	OrderID               string    `db:"order_id"`
 	SagaID                string    `db:"saga_id"`
@@ -32,7 +32,7 @@ type OrderRow struct {
 	UpdatedAt             time.Time `db:"updated_at"`
 }
 
-// OrderGigSnapshotRow is the Yugabyte persistence model for the immutable gig snapshot.
+// OrderGigSnapshotRow is the PostgreSQL persistence model for the immutable gig snapshot.
 type OrderGigSnapshotRow struct {
 	OrderID             string    `db:"order_id"`
 	GigID               string    `db:"gig_id"`
