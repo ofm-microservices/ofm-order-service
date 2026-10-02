@@ -272,6 +272,9 @@ type CreateDraftOrderCommand struct {
 	Questions           []OrderQuestionSnapshot
 	IdempotencyKey      string
 	RequestedAt         string
+	// SkipProjection is used by durable migration recovery to persist the
+	// authoritative CUD without synchronously hydrating foreign read models.
+	SkipProjection bool
 }
 
 // OrderQuestionSnapshot stores one immutable question snapshot for service commands.
@@ -500,6 +503,8 @@ type SaveBuyerInitialMessageResult struct {
 type AttachFileCommand struct {
 	OrderID      string
 	AttachmentID string
+	FileID       string
+	SortOrder    int32
 }
 
 // AttachFileResult reports the updated order state.
