@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
+	transportgrpc "github.com/ofm-microservices/ofm-common/pkg/observability/grpc"
 	"github.com/ofm-microservices/ofm-common/pkg/observability/metrics"
 	commonv1 "github.com/ofm-microservices/ofm-common/proto/common/v1"
 	orderwritev1 "github.com/ofm-microservices/ofm-common/proto/orderwrite/v1"
@@ -37,7 +38,7 @@ func NewServer(svc app.Service, cfg config.GRPCConfig, log logging.Logger) (Serv
 	if log == nil {
 		return nil, ErrNilLogger
 	}
-	grpcSrv := grpcpkg.NewServer(grpcpkg.StatsHandler(otelgrpc.NewServerHandler()), grpcpkg.UnaryInterceptor(metrics.UnaryServerInterceptor()))
+	grpcSrv := grpcpkg.NewServer(grpcpkg.StatsHandler(otelgrpc.NewServerHandler()), grpcpkg.ChainUnaryInterceptor(metrics.UnaryServerInterceptor(), transportgrpc.UnaryServerInterceptor(log)))
 	s := &server{svc: svc, cfg: cfg, log: log.With(logging.String("module", "grpc-order-server")), srv: grpcSrv}
 	orderwritev1.RegisterOrderWriteServiceServer(grpcSrv, s)
 	return s, nil
@@ -103,7 +104,7 @@ func (s *server) SaveBuyerInitialMessage(ctx context.Context, req *orderwritev1.
 	return &orderwritev1.SaveBuyerInitialMessageResponse{Order: &orderwritev1.OrderSnapshot{OrderId: res.OrderID, Status: res.Status}}, nil
 }
 func (s *server) AttachFileToOrder(ctx context.Context, req *orderwritev1.AttachFileToOrderRequest) (*orderwritev1.AttachFileToOrderResponse, error) {
-	res, err := s.svc.AttachFile(ctx, app.AttachFileCommand{OrderID: req.GetOrderId(), AttachmentID: req.GetAttachmentId()})
+	res, err := s.svc.AttachFile(ctx, app.AttachFileCommand{OrderID: req.GetOrderId(), AttachmentID: req.GetAttachmentId(), FileID: req.GetFileKey(), SortOrder: 1})
 	if err != nil {
 		return nil, err
 	}
