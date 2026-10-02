@@ -1,4 +1,4 @@
-package yugabyte
+package postgres
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 
 var connectDB = sqlx.Connect
 
-// Open creates the order-service YugabyteDB connection pool.
+// Open creates the order-service PostgreSQL connection pool.
 func Open(cfg config.DBConfig) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name, cfg.SSLMode)
 	driverName, err := otelsql.Register("pgx", otelsql.WithAttributes(attribute.String("db.system", "postgresql"), attribute.String("db.namespace", cfg.Name)))

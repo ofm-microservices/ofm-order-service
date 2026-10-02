@@ -1,4 +1,4 @@
-package yugabyte
+package postgres
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/ofm-microservices/ofm-common/pkg/logging"
 	"github.com/ofm-microservices/ofm-common/pkg/observability/metrics"
 	"order-service/internal/domain"
-	"order-service/internal/infra/write/yugabyte/model"
+	"order-service/internal/infra/write/postgres/model"
 )
 
 type repo struct {
@@ -18,15 +18,15 @@ type repo struct {
 	log logging.Logger
 }
 
-// New constructs the Yugabyte-backed order repository.
+// New constructs the PostgreSQL-backed order repository.
 func New(db *sqlx.DB, log logging.Logger) (domain.OrderRepository, error) {
 	if db == nil {
-		return nil, ErrNilYugaByteDB
+		return nil, ErrNilPostgresDB
 	}
 	if log == nil {
 		return nil, ErrNilLogger
 	}
-	return &repo{db: db, log: log.With(logging.String("module", "yugabyte-repository"))}, nil
+	return &repo{db: db, log: log.With(logging.String("module", "postgres-repository"))}, nil
 }
 
 const orderColumns = `
@@ -163,8 +163,17 @@ RETURNING ` + orderColumns
 const requestRevisionQuery = `
 UPDATE orders
 SET status = $2, revision_count_used = revision_count_used + 1, updated_at = NOW()
-WHERE order_id = $1
+WHERE order_id = $1 AND buyer_id = $3
 RETURNING ` + orderColumns
+
+const upsertOrderRevisionQuery = `
+INSERT INTO order_revision_requests (order_id, buyer_id, reason, created_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (order_id) DO UPDATE SET
+    buyer_id = EXCLUDED.buyer_id,
+    reason = EXCLUDED.reason,
+    created_at = EXCLUDED.created_at
+`
 
 const openDisputeQuery = `
 UPDATE orders
@@ -275,7 +284,7 @@ ON CONFLICT (order_id, attachment_id) DO UPDATE SET file_id = EXCLUDED.file_id, 
 func (r *repo) Create(ctx context.Context, params domain.CreateOrderParams) (*domain.Order, error) {
 	started := time.Now()
 	status := "success"
-	defer func() { metrics.Global().ObserveDB("yugabyte", "create", "orders", status, time.Since(started)) }()
+	defer func() { metrics.Global().ObserveDB("postgres", "create", "orders", status, time.Since(started)) }()
 
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -347,7 +356,7 @@ func (r *repo) GetByID(ctx context.Context, orderID string) (*domain.Order, erro
 func (r *repo) MarkPaid(ctx context.Context, orderID, paymentIntentID string) (*domain.Order, error) {
 	started := time.Now()
 	status := "success"
-	defer func() { metrics.Global().ObserveDB("yugabyte", "mark_paid", "orders", status, time.Since(started)) }()
+	defer func() { metrics.Global().ObserveDB("postgres", "mark_paid", "orders", status, time.Since(started)) }()
 
 	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderPaidQuery, orderID, domain.OrderStatusPaid, paymentIntentID)); err != nil {
 		status = "error"
@@ -362,7 +371,7 @@ func (r *repo) MarkPaid(ctx context.Context, orderID, paymentIntentID string) (*
 func (r *repo) MarkFunded(ctx context.Context, orderID, paymentIntentID string) (*domain.Order, error) {
 	started := time.Now()
 	status := "success"
-	defer func() { metrics.Global().ObserveDB("yugabyte", "mark_funded", "orders", status, time.Since(started)) }()
+	defer func() { metrics.Global().ObserveDB("postgres", "mark_funded", "orders", status, time.Since(started)) }()
 
 	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderFundedQuery, orderID, domain.OrderStatusFunded, paymentIntentID)); err != nil {
 		status = "error"
@@ -377,7 +386,7 @@ func (r *repo) MarkFunded(ctx context.Context, orderID, paymentIntentID string) 
 func (r *repo) MarkFailed(ctx context.Context, orderID, reason string) (*domain.Order, error) {
 	started := time.Now()
 	status := "success"
-	defer func() { metrics.Global().ObserveDB("yugabyte", "mark_failed", "orders", status, time.Since(started)) }()
+	defer func() { metrics.Global().ObserveDB("postgres", "mark_failed", "orders", status, time.Since(started)) }()
 
 	if _, err := scanOrder(r.db.QueryRowContext(ctx, markOrderFailedQuery, orderID, domain.OrderStatusFailed, reason)); err != nil {
 		status = "error"
@@ -602,10 +611,22 @@ func (r *repo) MarkReleasePending(ctx context.Context, orderID, paymentReleaseID
 }
 
 func (r *repo) RequestRevision(ctx context.Context, params domain.RequestRevisionParams) (*domain.Order, error) {
-	if _, err := scanOrder(r.db.QueryRowContext(ctx, requestRevisionQuery, params.OrderID, domain.OrderStatusRevisionRequested)); err != nil {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := scanOrder(tx.QueryRowContext(ctx, requestRevisionQuery, params.OrderID, domain.OrderStatusRevisionRequested, params.BuyerID)); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, domain.ErrOrderNotFound
 		}
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, upsertOrderRevisionQuery, params.OrderID, params.BuyerID, params.Reason, params.RequestedAt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return r.GetByID(ctx, params.OrderID)

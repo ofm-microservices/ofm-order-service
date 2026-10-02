@@ -4,6 +4,9 @@ package config
 type KafkaConfig struct {
 	Brokers           []string `env:"KAFKA_BROKERS" envSeparator:"," envDefault:"127.0.0.1:9092"`
 	GroupID           string   `env:"KAFKA_ORDER_GROUP_ID" envDefault:"order-service"`
+	RecoveryTopic     string   `env:"KAFKA_ORDER_RECOVERY_TOPIC" envDefault:"migration.recovery.commands.order"`
+	RecoveryGroup     string   `env:"KAFKA_ORDER_RECOVERY_GROUP" envDefault:"order-service-recovery"`
+	RecoveryCompleted string   `env:"KAFKA_ORDER_RECOVERY_COMPLETED_TOPIC" envDefault:"migration.recovery.completed"`
 	CreateTopic       string   `env:"KAFKA_ORDER_CREATE_TOPIC" envDefault:"order.create"`
 	CreateResultTopic string   `env:"KAFKA_ORDER_CREATE_RESULT_TOPIC" envDefault:"order.create.result"`
 	ConfirmTopic      string   `env:"KAFKA_ORDER_CONFIRM_TOPIC" envDefault:"order.confirm"`

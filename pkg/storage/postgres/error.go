@@ -1,4 +1,4 @@
-package yugabyte
+package postgres
 
 import "fmt"
 
