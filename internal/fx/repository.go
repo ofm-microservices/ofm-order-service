@@ -7,13 +7,13 @@ import (
 	"go.uber.org/fx"
 	"order-service/internal/domain"
 	readrepo "order-service/internal/infra/read/redis"
-	writerepo "order-service/internal/infra/write/yugabyte"
+	writerepo "order-service/internal/infra/write/postgres"
 )
 
 // RepoModule wires write- and read-model repositories into the FX graph.
 var RepoModule = fx.Options(fx.Provide(ProvideWriteRepo, ProvideReadRepo))
 
-// ProvideWriteRepo constructs the Yugabyte-backed order repository.
+// ProvideWriteRepo constructs the PostgreSQL-backed order repository.
 func ProvideWriteRepo(dbx *sqlx.DB, lg logging.Logger) (domain.OrderRepository, error) {
 	return writerepo.New(dbx, lg)
 }

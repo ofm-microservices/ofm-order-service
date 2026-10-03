@@ -11,5 +11,5 @@ var LoggerModule = fx.Provide(ProvideLogger)
 
 // ProvideLogger constructs the process logger.
 func ProvideLogger(cfg *config.Config) (logging.Logger, error) {
-	return logging.New(cfg.App.Name, cfg.App.Env, cfg.App.LogLevel)
+	return logging.NewWithMode(cfg.App.Name, cfg.App.Env, cfg.App.ObservabilityMode, cfg.App.LogLevel)
 }

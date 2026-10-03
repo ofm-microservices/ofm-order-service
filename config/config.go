@@ -14,6 +14,7 @@ type Config struct {
 	DB      DBConfig
 	Redis   RedisConfig
 	NATS    NATSConfig
+	Kafka   KafkaConfig
 	Metrics MetricsConfig
 	Tracing TracingConfig
 }

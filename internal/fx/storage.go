@@ -9,14 +9,14 @@ import (
 	"go.uber.org/fx"
 	"order-service/config"
 	rdb "order-service/pkg/storage/redis"
-	ydb "order-service/pkg/storage/yugabyte"
+	ydb "order-service/pkg/storage/postgres"
 )
 
 // StorageModule wires the order-service database, Redis read-model store, and
 // migrations into the FX graph.
 var StorageModule = fx.Options(
 	fx.Invoke(InvokeRunMigrations),
-	fx.Provide(ProvideYugaByteDB, ProvideRedisClient),
+	fx.Provide(ProvidePostgresDB, ProvideRedisClient),
 )
 
 // InvokeRunMigrations applies the order-service write-model migrations.
@@ -29,8 +29,8 @@ func InvokeRunMigrations(cfg *config.Config, lg logging.Logger) error {
 	return nil
 }
 
-// ProvideYugaByteDB opens the YugabyteDB connection owned by order-service.
-func ProvideYugaByteDB(lc fx.Lifecycle, cfg *config.Config, lg logging.Logger) (*sqlx.DB, error) {
+// ProvidePostgresDB opens the PostgreSQL connection owned by order-service.
+func ProvidePostgresDB(lc fx.Lifecycle, cfg *config.Config, lg logging.Logger) (*sqlx.DB, error) {
 	dbx, err := ydb.Open(cfg.DB)
 	if err != nil {
 		lg.Error("open database failed", logging.Err(err))

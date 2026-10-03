@@ -160,6 +160,9 @@ func (s *service) CreateDraftOrder(ctx context.Context, cmd CreateDraftOrderComm
 	if err := s.orders.SaveQuestionSnapshots(ctx, domain.SaveQuestionSnapshotsParams{OrderID: order.OrderID, Questions: questions}); err != nil {
 		return nil, err
 	}
+	if cmd.SkipProjection {
+		return &CreateDraftOrderResult{OrderID: order.OrderID, Status: order.Status}, nil
+	}
 	if err := s.refreshOrderProjection(ctx, order); err != nil {
 		return nil, err
 	}
@@ -363,7 +366,7 @@ func (s *service) GetOrderDeliveryByID(ctx context.Context, cmd GetOrderDelivery
 }
 
 // GetOrderCountByGigID returns the canonical order count for one gig directly
-// from YugabyteDB.
+// from PostgreSQL.
 func (s *service) GetOrderCountByGigID(ctx context.Context, gigID string) (*OrderCountResult, error) {
 	gigID = strings.TrimSpace(gigID)
 	if gigID == "" {
@@ -464,7 +467,7 @@ func (s *service) SaveBuyerInitialMessage(ctx context.Context, cmd SaveBuyerInit
 }
 
 func (s *service) AttachFile(ctx context.Context, cmd AttachFileCommand) (*AttachFileResult, error) {
-	order, err := s.orders.AttachFile(ctx, domain.AttachFileParams{OrderID: cmd.OrderID, AttachmentID: cmd.AttachmentID})
+	order, err := s.orders.AttachFile(ctx, domain.AttachFileParams{OrderID: cmd.OrderID, AttachmentID: cmd.AttachmentID, FileID: cmd.FileID, SortOrder: cmd.SortOrder})
 	if err != nil {
 		return nil, err
 	}

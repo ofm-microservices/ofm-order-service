@@ -3,7 +3,8 @@ package config
 // NATSConfig defines NATS streams, subjects, and durable consumers used by
 // order-service.
 type NATSConfig struct {
-	URL      string `env:"NATS_URL,required"`
+	// URL is retained only for compatibility adapters; production uses Kafka.
+	URL      string `env:"NATS_URL"`
 	User     string `env:"NATS_USER"`
 	Password string `env:"NATS_PASSWORD"`
 
